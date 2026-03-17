@@ -1,0 +1,54 @@
+[
+  {
+    "symbol": "NVDA",
+    "name": "NVIDIA Corporation",
+    "sector": "Semiconductors",
+    "shares": 124.5,
+    "price": 875.28,
+    "totalValue": 108972.36,
+    "dateAcquired": "2026-03-05",
+    "analysis": {
+      "tag": "High Growth",
+      "text": "Model signals dominant market share in H100 GPU production and recurring revenue growth in data centers through 2025."
+    }
+  },
+  {
+    "symbol": "MSFT",
+    "name": "Microsoft Corp.",
+    "sector": "Cloud/Software",
+    "shares": 150.0,
+    "price": 417.88,
+    "totalValue": 62682.0,
+    "dateAcquired": "2026-02-18",
+    "analysis": {
+      "tag": "Core Stability",
+      "text": "Sentiment analysis shows Azure AI integration driving enterprise adoption; 92% bullish institutional signal."
+    }
+  },
+  {
+    "symbol": "ASML",
+    "name": "ASML Holding N.V.",
+    "sector": "Lithography",
+    "shares": 45.0,
+    "price": 942.15,
+    "totalValue": 42396.75,
+    "dateAcquired": "2026-01-30",
+    "analysis": {
+      "tag": "Infrastructure",
+      "text": "Undervalued based on long-cycle demand for EUV lithography systems essential for sub-3nm chip fabrication."
+    }
+  },
+  {
+    "symbol": "GOOGL",
+    "name": "Alphabet Inc.",
+    "sector": "Internet/AI Services",
+    "shares": 210.0,
+    "price": 158.3,
+    "totalValue": 33243.0,
+    "dateAcquired": "2026-03-10",
+    "analysis": {
+      "tag": "Value Capture",
+      "text": "DeepMind synergy integration expected to lower operational costs by 14% via Gemini-driven search optimizations."
+    }
+  }
+]
