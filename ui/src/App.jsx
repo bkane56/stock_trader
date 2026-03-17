@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useReducer } from "react";
+import React, { lazy, Suspense } from "react";
+import { useDispatch, useSelector } from "react-redux";
 import {
   NavLink,
   Navigate,
@@ -22,28 +23,47 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
-import { TradeModal } from "./components/TradeModal";
 import { MobileNav } from "./components/MobileNav";
-import { tradeReducer, initialState } from "./reducers/tradeReducer";
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
-import { StrategyBuilder } from "./containers/StrategyBuilder";
+
+const TradeModal = lazy(() =>
+  import("./components/TradeModal").then((m) => ({ default: m.TradeModal }))
+);
+const StrategyBuilder = lazy(() =>
+  import("./containers/StrategyBuilder").then((m) => ({
+    default: m.StrategyBuilder,
+  }))
+);
 
 export default function App() {
-  const [state, dispatch] = useReducer(tradeReducer, initialState);
+  const dispatch = useDispatch();
   const {
     isTradeModalOpen,
+    selectedStock,
     strategySplit,
-    transactions,
-    holdings,
     showAllTransactions,
-  } = state;
+  } = useSelector((state) => state.trade);
+  const { transactions, holdings, cash } = useSelector(
+    (state) => state.portfolio
+  );
+  const totalValue = holdings.reduce((sum, h) => sum + h.totalValue, 0);
   const location = useLocation();
   const navigate = useNavigate();
 
-  const setIsTradeModalOpen = (v) =>
-    dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: v });
+  const openTradeModal = (holding) => {
+    dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
+    dispatch({ type: "SET_SELECTED_STOCK", payload: holding });
+  };
+  const openAddPurchaseModal = () => {
+    dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
+    dispatch({ type: "SET_SELECTED_STOCK", payload: null });
+  };
+  const closeTradeModal = () => {
+    dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: false });
+    dispatch({ type: "SET_SELECTED_STOCK", payload: null });
+  };
   const setStrategySplit = (v) =>
     dispatch({ type: "SET_STRATEGY_SPLIT", payload: v });
   const toggleShowAllTransactions = () =>
@@ -155,17 +175,28 @@ export default function App() {
               element={
                 <Portfolio
                   holdings={holdings}
-                  setIsTradeModalOpen={setIsTradeModalOpen}
+                  cash={cash}
+                  totalValue={totalValue}
+                  openTradeModal={openTradeModal}
+                  openAddPurchaseModal={openAddPurchaseModal}
                 />
               }
             />
             <Route
               path="/strategy"
               element={
-                <StrategyBuilder
-                  strategySplit={strategySplit}
-                  setStrategySplit={setStrategySplit}
-                />
+                <Suspense
+                  fallback={
+                    <div className="min-h-[400px] flex items-center justify-center text-slate-400">
+                      Loading…
+                    </div>
+                  }
+                >
+                  <StrategyBuilder
+                    strategySplit={strategySplit}
+                    setStrategySplit={setStrategySplit}
+                  />
+                </Suspense>
               }
             />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -207,10 +238,16 @@ export default function App() {
       {/* Modals */}
       <AnimatePresence>
         {isTradeModalOpen && (
-          <TradeModal
-            isOpen={isTradeModalOpen}
-            onClose={() => setIsTradeModalOpen(false)}
-          />
+          <Suspense fallback={null}>
+            <TradeModal
+              isOpen={isTradeModalOpen}
+              onClose={closeTradeModal}
+              holding={selectedStock}
+              cash={cash}
+              holdings={holdings}
+              onExecuteTrade={(action) => dispatch(action)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

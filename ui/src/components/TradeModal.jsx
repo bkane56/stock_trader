@@ -1,14 +1,96 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { cn } from "../lib/utils";
+import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
 
-export const TradeModal = ({ isOpen, onClose, stock }) => {
+export const TradeModal = ({
+  isOpen,
+  onClose,
+  holding,
+  cash,
+  holdings,
+  onExecuteTrade,
+}) => {
+  const isAddPurchaseFlow = !holding;
   const [mode, setMode] = useState("buy");
   const [shares, setShares] = useState("0");
-  const price = 172.45;
-  const cash = 14250.32;
-  const owned = 12;
+  const [selectedSymbol, setSelectedSymbol] = useState("");
+
+  const allStocks = useMemo(() => {
+    const heldSymbols = new Set(holdings.map((portfolioStock) => portfolioStock.symbol));
+    const heldStocks = holdings.map((portfolioStock) => ({
+      symbol: portfolioStock.symbol,
+      name: portfolioStock.name,
+      sector: portfolioStock.sector,
+      price: portfolioStock.price,
+    }));
+    const unheldStocks = TRADEABLE_STOCKS.filter(
+      (stock) => !heldSymbols.has(stock.symbol)
+    );
+    return [...heldStocks, ...unheldStocks];
+  }, [holdings]);
+
+  const displayStock =
+    holding ||
+    allStocks.find((stock) => stock.symbol === selectedSymbol) ||
+    allStocks[0] ||
+    null;
+  const price = displayStock?.price ?? 0;
+  const owned =
+    holdings.find((portfolioStock) => portfolioStock.symbol === displayStock?.symbol)
+      ?.shares ?? 0;
+  const estimatedTotal = (Number(shares) || 0) * price;
+  const invalidShares = !Number(shares) || Number(shares) <= 0;
+  const insufficientCash = mode === "buy" && estimatedTotal > cash;
+  const insufficientShares = mode === "sell" && Number(shares) > owned;
+  const cannotSellSelectedStock = mode === "sell" && owned <= 0;
+  const disablePlaceOrder =
+    !displayStock ||
+    invalidShares ||
+    insufficientCash ||
+    insufficientShares ||
+    cannotSellSelectedStock;
+
+  useEffect(() => {
+    if (isOpen) {
+      setShares("0");
+      setMode("buy");
+      setSelectedSymbol(holding?.symbol || allStocks[0]?.symbol || "");
+    }
+  }, [isOpen, holding, allStocks]);
+
+  const handlePlaceOrder = () => {
+    const numShares = Number(shares);
+    if (!numShares || numShares <= 0 || !displayStock) return;
+
+    if (mode === "buy") {
+      const cost = displayStock.price * numShares;
+      if (cash < cost) return;
+      onExecuteTrade({
+        type: "BUY_ADD_HOLDING",
+        payload: {
+          symbol: displayStock.symbol,
+          name: displayStock.name,
+          sector: displayStock.sector,
+          price: displayStock.price,
+          shares: numShares,
+        },
+      });
+    } else {
+      if (owned <= 0 || owned < numShares) return;
+      onExecuteTrade({
+        type: "SELL_HOLDING",
+        payload: {
+          symbol: displayStock.symbol,
+          name: displayStock.name,
+          shares: numShares,
+          price: displayStock.price,
+        },
+      });
+    }
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -28,7 +110,9 @@ export const TradeModal = ({ isOpen, onClose, stock }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-slate-800">Trade Stock</h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            {isAddPurchaseFlow ? "Add Purchase" : "Trade Stock"}
+          </h2>
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -63,74 +147,125 @@ export const TradeModal = ({ isOpen, onClose, stock }) => {
             </button>
           </div>
 
-          <div className="mb-8 flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl">
-                {stock || "TSLA"}
-              </div>
-              <div>
-                <h3 className="font-extrabold text-slate-900">Tesla, Inc.</h3>
-                <p className="text-sm font-medium text-slate-500">
-                  ${price}{" "}
-                  <span className="text-rose-500 font-bold">-0.82%</span>
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div>
+          {isAddPurchaseFlow && allStocks.length > 0 && (
+            <div className="mb-8">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Number of Shares
+                Select Stock
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={shares}
-                  onChange={(e) => setShares(e.target.value)}
-                  className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-2xl font-bold py-4 px-6"
-                  placeholder="0"
-                />
+              <select
+                value={displayStock?.symbol ?? allStocks[0]?.symbol}
+                onChange={(e) => setSelectedSymbol(e.target.value)}
+                className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm font-bold py-4 px-6"
+              >
+                {allStocks.map((stock) => (
+                  <option key={stock.symbol} value={stock.symbol}>
+                    {stock.symbol} - {stock.name} (${stock.price.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-                <div className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm tracking-widest">
-                  SHARES
+          {displayStock && (
+            <>
+              <div className="mb-8 flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-teal-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl">
+                    {displayStock.symbol}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900">
+                      {displayStock.name}
+                    </h3>
+                    <p className="text-sm font-medium text-slate-500">
+                      ${price.toFixed(2)}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex justify-between items-center text-sm px-1">
-              <div>
-                <span className="text-slate-500 font-medium">
-                  {mode === "buy" ? "Available Cash:" : "Available Shares:"}
-                </span>
-                <span className="font-bold text-slate-900 ml-2">
-                  {mode === "buy"
-                    ? `$${cash.toLocaleString()}`
-                    : `${owned} TSLA`}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-slate-500 font-medium">Est. Total:</span>
-                <span className="font-black text-slate-900 ml-2">
-                  $
-                  {(Number(shares) * price).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
-                </span>
-              </div>
-            </div>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Number of Shares
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={shares}
+                      onChange={(e) => setShares(e.target.value)}
+                      className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-2xl font-bold py-4 pl-6 pr-32 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      placeholder="0"
+                    />
+                    <div className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm tracking-widest">
+                      SHARES
+                    </div>
+                  </div>
+                </div>
 
-            <button
-              className={cn(
-                "w-full py-5 text-white font-black rounded-2xl shadow-lg transition-all transform active:scale-[0.98] text-lg",
-                mode === "buy"
-                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
-                  : "bg-rose-600 hover:bg-rose-700 shadow-rose-200",
-              )}
-            >
-              Place {mode === "buy" ? "Buy" : "Sell"} Order
-            </button>
-          </div>
+                <div className="flex justify-between items-center text-sm px-1">
+                  <div>
+                    <span className="text-slate-500 font-medium">
+                      {mode === "buy" ? "Available Cash:" : "Available Shares:"}
+                    </span>
+                    <span className="font-bold text-slate-900 ml-2">
+                      {mode === "buy"
+                        ? `$${cash.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                          })}`
+                        : `${owned.toFixed(2)} ${displayStock.symbol}`}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-500 font-medium">Est. Total:</span>
+                    <span className="font-black text-slate-900 ml-2">
+                      $
+                      {estimatedTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                {mode === "sell" && owned <= 0 && (
+                  <p className="text-sm font-medium text-rose-600">
+                    You do not currently own this stock, so there are no shares to sell.
+                  </p>
+                )}
+                {mode === "buy" && insufficientCash && (
+                  <p className="text-sm font-medium text-rose-600">
+                    This order exceeds your available cash.
+                  </p>
+                )}
+                {mode === "sell" && insufficientShares && owned > 0 && (
+                  <p className="text-sm font-medium text-rose-600">
+                    You cannot sell more shares than you currently own.
+                  </p>
+                )}
+
+                <button
+                  onClick={handlePlaceOrder}
+                  disabled={disablePlaceOrder}
+                  className={cn(
+                    "w-full py-5 text-white font-black rounded-2xl shadow-lg transition-all transform active:scale-[0.98] text-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
+                    mode === "buy"
+                      ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+                      : "bg-rose-600 hover:bg-rose-700 shadow-rose-200",
+                  )}
+                >
+                  Place {mode === "buy" ? "Buy" : "Sell"} Order
+                </button>
+              </div>
+            </>
+          )}
+
+          {isAddPurchaseFlow && allStocks.length === 0 && (
+            <p className="text-slate-500 text-sm font-medium text-center py-8">
+              No stocks are currently available for trading.
+            </p>
+          )}
 
           <p className="text-center text-[10px] font-bold text-slate-400 mt-8 px-6 uppercase tracking-widest leading-relaxed">
             Orders placed after market hours will be executed at the opening

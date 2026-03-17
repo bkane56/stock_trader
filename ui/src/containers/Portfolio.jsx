@@ -1,10 +1,16 @@
 import React from "react";
-import { Wallet } from "lucide-react";
+import { Wallet, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
 
-export function Portfolio({ holdings, setIsTradeModalOpen }) {
+export function Portfolio({
+  holdings,
+  cash,
+  totalValue,
+  openTradeModal,
+  openAddPurchaseModal,
+}) {
   return (
     <motion.div
       key="portfolio"
@@ -32,7 +38,7 @@ export function Portfolio({ holdings, setIsTradeModalOpen }) {
             </div>
           </div>
           <h3 className="text-3xl font-black text-slate-900 tracking-tighter">
-            $42,905.32
+            ${cash.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </h3>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
             Buying Power Ready for Deployment
@@ -67,7 +73,7 @@ export function Portfolio({ holdings, setIsTradeModalOpen }) {
                 <tr
                   key={holding.symbol}
                   className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                  onClick={() => setIsTradeModalOpen(true)}
+                  onClick={() => openTradeModal(holding)}
                 >
                   <td className="px-8 py-6 whitespace-nowrap">
                     <div className="flex items-center">
@@ -120,7 +126,10 @@ export function Portfolio({ holdings, setIsTradeModalOpen }) {
                   Total Portfolio Value
                 </td>
                 <td className="px-8 py-6 text-right font-black text-slate-900 text-2xl tracking-tighter">
-                  $247,294.11
+                  $
+                  {totalValue.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })}
                 </td>
                 <td className="px-8 py-6"></td>
               </tr>
@@ -130,6 +139,13 @@ export function Portfolio({ holdings, setIsTradeModalOpen }) {
       </GlassCard>
 
       <div className="flex justify-end gap-4">
+        <button
+          onClick={openAddPurchaseModal}
+          className="px-8 py-4 rounded-2xl border-2 border-teal-600 text-teal-600 text-xs font-black uppercase tracking-widest hover:bg-teal-50 transition-all flex items-center gap-2"
+        >
+          <Plus size={18} />
+          Trade Stocks
+        </button>
         <button className="px-8 py-4 rounded-2xl border-2 border-slate-200 text-xs font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all">
           Export CSV
         </button>
