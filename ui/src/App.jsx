@@ -5,6 +5,14 @@
 
 import React, { useReducer } from "react";
 import {
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import {
   LayoutDashboard,
   PieChart,
   Search,
@@ -15,6 +23,7 @@ import {
 import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { TradeModal } from "./components/TradeModal";
+import { MobileNav } from "./components/MobileNav";
 import { tradeReducer, initialState } from "./reducers/tradeReducer";
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
@@ -24,21 +33,26 @@ import { StrategyBuilder } from "./containers/StrategyBuilder";
 export default function App() {
   const [state, dispatch] = useReducer(tradeReducer, initialState);
   const {
-    view,
     isTradeModalOpen,
     strategySplit,
     transactions,
     holdings,
     showAllTransactions,
   } = state;
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const setView = (v) => dispatch({ type: "SET_VIEW", payload: v });
   const setIsTradeModalOpen = (v) =>
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: v });
   const setStrategySplit = (v) =>
     dispatch({ type: "SET_STRATEGY_SPLIT", payload: v });
   const toggleShowAllTransactions = () =>
     dispatch({ type: "TOGGLE_SHOW_ALL_TRANSACTIONS" });
+  const navItems = [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/portfolio", label: "Portfolio", icon: Briefcase },
+    { to: "/strategy", label: "Strategy Builder", icon: PieChart },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 selection:bg-teal-100 selection:text-teal-900">
@@ -55,7 +69,7 @@ export default function App() {
             <div className="flex items-center gap-10">
               <div
                 className="flex items-center gap-3 cursor-pointer"
-                onClick={() => setView("dashboard")}
+                onClick={() => navigate("/")}
               >
                 <div className="w-10 h-10 bg-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-teal-200">
                   <Zap className="w-6 h-6 text-white" fill="white" />
@@ -66,24 +80,23 @@ export default function App() {
               </div>
 
               <div className="hidden md:flex items-center gap-8">
-                {[
-                  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-                  { id: "portfolio", label: "Portfolio", icon: Briefcase },
-                  { id: "strategy", label: "Strategy Builder", icon: PieChart },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setView(item.id)}
-                    className={cn(
-                      "flex items-center gap-2 text-sm font-bold transition-all px-3 py-2 rounded-lg",
-                      view === item.id
-                        ? "text-teal-600 bg-teal-50"
-                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-50",
-                    )}
+                {navItems.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-2 text-sm font-bold transition-all px-3 py-2 rounded-lg",
+                        isActive
+                          ? "text-teal-600 bg-teal-50"
+                          : "text-slate-500 hover:text-slate-900 hover:bg-slate-50",
+                      )
+                    }
                   >
                     <item.icon size={18} />
                     {item.label}
-                  </button>
+                  </NavLink>
                 ))}
               </div>
             </div>
@@ -118,35 +131,45 @@ export default function App() {
               </div>
             </div>
           </div>
+          <MobileNav items={navItems} />
         </div>
       </nav>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative z-10">
         <AnimatePresence mode="wait">
-          {view === "dashboard" && (
-            <Dashboard
-              key="dashboard"
-              transactions={transactions}
-              showAllTransactions={showAllTransactions}
-              toggleShowAllTransactions={toggleShowAllTransactions}
-              setView={setView}
+          <Routes location={location} key={location.pathname}>
+            <Route
+              path="/"
+              element={
+                <Dashboard
+                  transactions={transactions}
+                  showAllTransactions={showAllTransactions}
+                  toggleShowAllTransactions={toggleShowAllTransactions}
+                  goToStrategy={() => navigate("/strategy")}
+                />
+              }
             />
-          )}
-          {view === "portfolio" && (
-            <Portfolio
-              key="portfolio"
-              holdings={holdings}
-              setIsTradeModalOpen={setIsTradeModalOpen}
+            <Route
+              path="/portfolio"
+              element={
+                <Portfolio
+                  holdings={holdings}
+                  setIsTradeModalOpen={setIsTradeModalOpen}
+                />
+              }
             />
-          )}
-          {view === "strategy" && (
-            <StrategyBuilder
-              key="strategy"
-              strategySplit={strategySplit}
-              setStrategySplit={setStrategySplit}
+            <Route
+              path="/strategy"
+              element={
+                <StrategyBuilder
+                  strategySplit={strategySplit}
+                  setStrategySplit={setStrategySplit}
+                />
+              }
             />
-          )}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </AnimatePresence>
       </main>
 

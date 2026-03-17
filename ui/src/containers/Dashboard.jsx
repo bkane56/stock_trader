@@ -23,7 +23,7 @@ export function Dashboard({
   transactions,
   showAllTransactions,
   toggleShowAllTransactions,
-  setView,
+  goToStrategy,
 }) {
   const visibleTransactions = showAllTransactions
     ? transactions
@@ -124,7 +124,7 @@ export function Dashboard({
               </p>
             </div>
             <button
-              onClick={() => setView("strategy")}
+              onClick={goToStrategy}
               className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
             >
               Modify Strategy
