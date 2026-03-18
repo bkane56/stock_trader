@@ -1,0 +1,27 @@
+{
+  "run_id": "20260318160829",
+  "generated_at": "2026-03-18T16:08:29.606314+00:00",
+  "recommendations": [
+    {
+      "symbol": "SPY",
+      "action": "hold",
+      "confidence": 0.25,
+      "rationale": "Agent=openai:gpt-4.2. Initial scaffold recommendation while AI signals are being built.",
+      "generated_at": "2026-03-18T16:08:29.606688Z"
+    },
+    {
+      "symbol": "QQQ",
+      "action": "hold",
+      "confidence": 0.25,
+      "rationale": "Agent=openai:gpt-4.2. Initial scaffold recommendation while AI signals are being built.",
+      "generated_at": "2026-03-18T16:08:29.606688Z"
+    },
+    {
+      "symbol": "AAPL",
+      "action": "hold",
+      "confidence": 0.25,
+      "rationale": "Agent=openai:gpt-4.2. Initial scaffold recommendation while AI signals are being built.",
+      "generated_at": "2026-03-18T16:08:29.606688Z"
+    }
+  ]
+}

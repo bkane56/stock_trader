@@ -8,6 +8,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
+        extra="ignore",
     )
 
     APP_NAME: str = "Stock Trader AI Service"
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
 
     AI_PROVIDER: str = "openai"
     AI_MODEL: str = "gpt-4.2"
+    AI_SYSTEM_PROMPT: str = ""
     OPENAI_MODEL: str = ""
     ANTHROPIC_MODEL: str = ""
 
@@ -49,6 +51,11 @@ class Settings(BaseSettings):
         if provider == "anthropic":
             return self.ANTHROPIC_API_KEY.strip()
         return ""
+
+    def resolved_ai_system_prompt(self, default_prompt: str) -> str:
+        if self.AI_SYSTEM_PROMPT.strip():
+            return self.AI_SYSTEM_PROMPT.strip()
+        return default_prompt
 
 
 @lru_cache(maxsize=1)

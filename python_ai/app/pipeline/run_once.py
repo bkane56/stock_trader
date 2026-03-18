@@ -22,7 +22,7 @@ def run_once() -> RunOutput:
     output = RunOutput(
         run_id=run_id,
         generated_at=now.isoformat(),
-        recommendations=[item.model_dump() for item in recommendations],
+        recommendations=[item.model_dump(mode="json") for item in recommendations],
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = OUTPUT_DIR / f"pipeline_run_{run_id}.json"
