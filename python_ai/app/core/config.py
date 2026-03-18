@@ -13,17 +13,23 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Stock Trader AI Service"
     APP_ENV: str = "development"
+    APP_LOG_LEVEL: str = "INFO"
     PIPELINE_INTERVAL_MINUTES: int = 60
 
     AI_PROVIDER: str = "openai"
     AI_MODEL: str = "gpt-4.2"
     AI_SYSTEM_PROMPT: str = ""
+    AI_SKILLS_INDEX_PATH: str = "skills_index.json"
+    AI_SKILLS_ROOT_PATH: str = "skills"
+    AI_SKILLS_PROMPT_LIMIT: int = 15
+    RESEARCH_MIN_BUY_CONFIDENCE: float = 0.6
     OPENAI_MODEL: str = ""
     ANTHROPIC_MODEL: str = ""
 
     POLYGON_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    SERPER_API_KEY: str = ""
 
     PUSHOVER_USER: str = ""
     PUSHOVER_TOKEN: str = ""
@@ -56,6 +62,10 @@ class Settings(BaseSettings):
         if self.AI_SYSTEM_PROMPT.strip():
             return self.AI_SYSTEM_PROMPT.strip()
         return default_prompt
+
+    def resolved_research_min_buy_confidence(self) -> float:
+        # Clamp to [0.0, 1.0] to keep validation predictable.
+        return max(0.0, min(1.0, float(self.RESEARCH_MIN_BUY_CONFIDENCE)))
 
 
 @lru_cache(maxsize=1)

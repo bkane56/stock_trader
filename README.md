@@ -32,10 +32,12 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 An initial AI service scaffold is available in [`python_ai/`](python_ai/).
 
 1. Install Python dependencies with `uv`:
-   `cd python_ai && uv sync`
+   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv sync --extra dev`
 2. Start the API:
-   `uv run uvicorn app.main:app --reload`
+   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010`
+   Runtime details endpoint:
+   `curl "http://127.0.0.1:8010/health/details"`
 3. Run a one-shot pipeline:
-   `uv run python -m app.pipeline.run_once`
+   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run python -m app.pipeline.run_once`
 4. Print latest local report:
-   `uv run python -m app.reports.latest`
+   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run python -m app.reports.latest`

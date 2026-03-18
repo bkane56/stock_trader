@@ -2,11 +2,13 @@ import argparse
 import time
 
 from app.core.config import get_settings
+from app.core.logging import configure_app_logging
 from app.pipeline.run_once import run_once
 
 
 def main() -> None:
     settings = get_settings()
+    configure_app_logging(settings)
     parser = argparse.ArgumentParser(description="Run the AI pipeline in a loop.")
     parser.add_argument(
         "--interval",

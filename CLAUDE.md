@@ -15,7 +15,7 @@ You are a senior software engineer specializing in both ReactJS and Python as an
 ## Python and AI Development Guidelines
 
 - **Python Version:** Use Python `>=3.12`.
-- **Code Structure:** Use classes when they provide clear value (stateful workflows, reusable services, or domain modeling). Prefer simple functions for straightforward logic.
+- **Code Structure:** Use classes when they provide clear value (stateful workflows, reusable services, or domain modeling). Prefer simple functions for straightforward logic. Use doc strings and code hints on all code when approrpriate
 - **AI Agent Framework:** Use OpenAI's SDK as the default agent framework for AI features.
 - **Structured Output:** Prefer structured output when it makes sense for reliability, validation, and downstream processing.
 - **Skills and MCP Usage:** You may use resources in the `skills/` folder. It is also acceptable to use MCP servers when needed.

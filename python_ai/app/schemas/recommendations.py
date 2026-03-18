@@ -13,6 +13,49 @@ class Recommendation(BaseModel):
 
 class RecommendationListResponse(BaseModel):
     recommendations: list[Recommendation]
+    tools_used: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+class HoldingResearch(BaseModel):
+    symbol: str
+    stance: str = Field(pattern="^(add|hold|trim|exit|watch)$")
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class SectorResearch(BaseModel):
+    sector: str
+    ticker: str
+    momentum: str = Field(pattern="^(strong|neutral|weak)$")
+    summary: str
+
+
+class StockIdea(BaseModel):
+    symbol: str
+    sector: str
+    thesis: str
+    risk: str
+    entry_style: str = Field(pattern="^(immediate|pullback|watchlist)$")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class DoNotBuyIdea(BaseModel):
+    symbol: str
+    sector: str
+    reason: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class MarketResearchResponse(BaseModel):
+    holdings_review: list[HoldingResearch]
+    sector_outlook: list[SectorResearch]
+    stock_ideas: list[StockIdea]
+    top_3_buys: list[StockIdea]
+    do_not_buy: list[DoNotBuyIdea]
+    macro_summary: str
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

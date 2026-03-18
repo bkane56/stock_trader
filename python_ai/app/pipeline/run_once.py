@@ -3,6 +3,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.core.config import get_settings
+from app.core.logging import configure_app_logging
 from app.pipeline.service import generate_initial_recommendations
 
 OUTPUT_DIR = Path("artifacts")
@@ -16,6 +18,7 @@ class RunOutput:
 
 
 def run_once() -> RunOutput:
+    configure_app_logging(get_settings())
     now = datetime.now(timezone.utc)
     run_id = now.strftime("%Y%m%d%H%M%S")
     recommendations = generate_initial_recommendations(["SPY", "QQQ", "AAPL"])
