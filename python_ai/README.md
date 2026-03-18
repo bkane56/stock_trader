@@ -2,6 +2,11 @@
 
 Initial FastAPI scaffold for the AI recommendation pipeline.
 
+Default agent configuration is OpenAI-first:
+
+- `AI_PROVIDER=openai`
+- `AI_MODEL=gpt-4.2`
+
 ## Commands
 
 - Install dependencies:

@@ -16,7 +16,8 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 1. Install dependencies:
    `npm install`
 2. Copy [.env.example](.env.example) to `.env.local` and add your keys:
-   - `GEMINI_API_KEY`
+   - `AI_PROVIDER` (`openai`)
+   - `AI_MODEL` (`gpt-4.2`)
    - `POLYGON_API_KEY`
    - `OPENAI_API_KEY`
    - `ANTHROPIC_API_KEY`
