@@ -15,6 +15,26 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Copy [.env.example](.env.example) to `.env.local` and add your keys:
+   - `GEMINI_API_KEY`
+   - `POLYGON_API_KEY`
+   - `OPENAI_API_KEY`
+   - `ANTHROPIC_API_KEY`
+   - `PUSHOVER_USER`
+   - `PUSHOVER_TOKEN`
+   - `PUSHOVER_URL`
 3. Run the app:
    `npm run dev`
+
+## AI Service (Python 3.12+)
+
+An initial AI service scaffold is available in [`python_ai/`](python_ai/).
+
+1. Install Python dependencies with `uv`:
+   `cd python_ai && uv sync`
+2. Start the API:
+   `uv run uvicorn app.main:app --reload`
+3. Run a one-shot pipeline:
+   `uv run python -m app.pipeline.run_once`
+4. Print latest local report:
+   `uv run python -m app.reports.latest`

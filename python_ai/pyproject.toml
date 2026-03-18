@@ -1,0 +1,21 @@
+[project]
+name = "stock-trader-ai-service"
+version = "0.1.0"
+description = "AI recommendation service for stock trader app"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "apscheduler>=3.11.0",
+  "fastapi>=0.116.0",
+  "httpx>=0.28.0",
+  "pydantic-settings>=2.10.0",
+  "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
