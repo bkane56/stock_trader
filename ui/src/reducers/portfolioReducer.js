@@ -1,3 +1,4 @@
+import { computeCashAdjustment } from "../lib/cashAdjustments";
 import portfolioHoldings from "../data/portfolioHoldings.json";
 import { clampPercentage, strategyFromGrowth } from "../lib/portfolioMetrics";
 
@@ -167,6 +168,54 @@ export function portfolioReducer(state = initialPortfolioState, action) {
           "Sell Order",
           proceeds,
           shares
+        ),
+      };
+    }
+    case "DEPOSIT_CASH_RESERVE": {
+      let adjustment;
+      try {
+        adjustment = computeCashAdjustment({
+          currentCash: state.cash,
+          mode: "deposit",
+          amount: action.payload?.amount,
+        });
+      } catch {
+        return state;
+      }
+      return {
+        ...state,
+        cash: adjustment.nextCash,
+        syncError: "",
+        transactions: addTransaction(
+          state.transactions,
+          adjustment.eventSymbol,
+          adjustment.eventAsset,
+          adjustment.transactionType,
+          adjustment.normalizedAmount
+        ),
+      };
+    }
+    case "WITHDRAW_CASH_RESERVE": {
+      let adjustment;
+      try {
+        adjustment = computeCashAdjustment({
+          currentCash: state.cash,
+          mode: "withdraw",
+          amount: action.payload?.amount,
+        });
+      } catch {
+        return state;
+      }
+      return {
+        ...state,
+        cash: adjustment.nextCash,
+        syncError: "",
+        transactions: addTransaction(
+          state.transactions,
+          adjustment.eventSymbol,
+          adjustment.eventAsset,
+          adjustment.transactionType,
+          adjustment.normalizedAmount
         ),
       };
     }

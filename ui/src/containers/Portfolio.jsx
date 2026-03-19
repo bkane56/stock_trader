@@ -1,5 +1,5 @@
 import React from "react";
-import { Wallet, Plus } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, Wallet, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
@@ -10,6 +10,7 @@ export function Portfolio({
   totalValue,
   openTradeModal,
   openAddPurchaseModal,
+  openCashModal,
   morningBriefing,
 }) {
   const actionsBySymbol = new Map(
@@ -47,6 +48,22 @@ export function Portfolio({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
             Buying Power Ready for Deployment
           </p>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              onClick={() => openCashModal("deposit")}
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowUpCircle size={14} />
+              Add Cash
+            </button>
+            <button
+              onClick={() => openCashModal("withdraw")}
+              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowDownCircle size={14} />
+              Withdraw Cash
+            </button>
+          </div>
         </GlassCard>
       </header>
 

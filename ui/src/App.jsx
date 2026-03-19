@@ -32,6 +32,7 @@ import { fetchLatestMorningBriefing } from "./services/briefings";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
 import { instantDb, isInstantDbEnabled } from "./services/instantdb/client";
 import {
+  adjustCashReserve,
   buildPortfolioState,
   ensurePortfolioForUser,
   executeTrade,
@@ -43,6 +44,11 @@ import {
 
 const TradeModal = lazy(() =>
   import("./components/TradeModal").then((m) => ({ default: m.TradeModal }))
+);
+const CashAdjustmentModal = lazy(() =>
+  import("./components/CashAdjustmentModal").then((m) => ({
+    default: m.CashAdjustmentModal,
+  }))
 );
 const StrategyBuilder = lazy(() =>
   import("./containers/StrategyBuilder").then((m) => ({
@@ -60,9 +66,13 @@ const INSTANT_PORTFOLIO_QUERY = {
 
 export default function App() {
   const dispatch = useDispatch();
-  const { isTradeModalOpen, selectedStock, showAllTransactions } = useSelector(
-    (state) => state.trade
-  );
+  const {
+    isTradeModalOpen,
+    isCashModalOpen,
+    cashModalMode,
+    selectedStock,
+    showAllTransactions,
+  } = useSelector((state) => state.trade);
   const {
     transactions,
     holdings,
@@ -226,6 +236,11 @@ export default function App() {
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: false });
     dispatch({ type: "SET_SELECTED_STOCK", payload: null });
   };
+  const openCashModal = (mode) => {
+    dispatch({ type: "SET_CASH_MODAL_MODE", payload: mode });
+    dispatch({ type: "SET_CASH_MODAL_OPEN", payload: true });
+  };
+  const closeCashModal = () => dispatch({ type: "SET_CASH_MODAL_OPEN", payload: false });
   const setStrategySplit = (nextGrowthPct) => {
     dispatch({ type: "SET_STRATEGY_SPLIT", payload: nextGrowthPct });
     if (!isInstantDbEnabled || !portfolioId) return;
@@ -286,6 +301,46 @@ export default function App() {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
         payload: error?.message || "Unable to execute trade in InstantDB.",
+      });
+    } finally {
+      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+    }
+  };
+  const handleAdjustCashReserve = async ({ mode, amount }) => {
+    const actionType =
+      mode === "withdraw" ? "WITHDRAW_CASH_RESERVE" : "DEPOSIT_CASH_RESERVE";
+    const fallbackAction = { type: actionType, payload: { amount } };
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      !portfolioQuery.data
+    ) {
+      dispatch(fallbackAction);
+      return;
+    }
+
+    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    if (!portfolioRecord) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: "Portfolio not ready yet. Please retry in a moment.",
+      });
+      return;
+    }
+
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    try {
+      await adjustCashReserve({
+        portfolio: portfolioRecord,
+        mode,
+        amount,
+      });
+      dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+    } catch (error) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: error?.message || "Unable to adjust cash reserve in InstantDB.",
       });
     } finally {
       dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
@@ -443,6 +498,7 @@ export default function App() {
                   totalValue={totalValue}
                   openTradeModal={openTradeModal}
                   openAddPurchaseModal={openAddPurchaseModal}
+                  openCashModal={openCashModal}
                   morningBriefing={morningBriefing}
                 />
               }
@@ -511,6 +567,17 @@ export default function App() {
               cash={cash}
               holdings={holdings}
               onExecuteTrade={handleExecuteTrade}
+            />
+          </Suspense>
+        )}
+        {isCashModalOpen && (
+          <Suspense fallback={null}>
+            <CashAdjustmentModal
+              isOpen={isCashModalOpen}
+              mode={cashModalMode}
+              cash={cash}
+              onClose={closeCashModal}
+              onAdjustCashReserve={handleAdjustCashReserve}
             />
           </Suspense>
         )}

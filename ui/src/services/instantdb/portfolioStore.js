@@ -1,4 +1,5 @@
 import seedHoldings from "../../data/portfolioHoldings.json";
+import { computeCashAdjustment } from "../../lib/cashAdjustments";
 import { clampPercentage, strategyFromGrowth } from "../../lib/portfolioMetrics";
 import { instantDb, instantId } from "./client";
 
@@ -130,6 +131,10 @@ function buildTransactionsFromEvents(events = []) {
     type:
       event.eventType === "SELL"
         ? "Sell Order"
+        : event.eventType === "DEPOSIT"
+          ? "Cash Deposit"
+          : event.eventType === "WITHDRAW"
+            ? "Cash Withdrawal"
         : event.eventType === "CASH_ADJUSTMENT"
           ? "Cash Adjustment"
           : "Buy Order",
@@ -195,6 +200,37 @@ export async function persistStrategySplit(portfolioId, growthPct) {
       updatedAt: Date.now(),
     })
   );
+}
+
+export async function adjustCashReserve({ portfolio, mode, amount }) {
+  if (!instantDb) return;
+  if (!portfolio?.id) {
+    throw new Error("Portfolio not ready yet. Please retry in a moment.");
+  }
+
+  const { nextCash, normalizedAmount, eventType, eventAsset, eventSymbol } =
+    computeCashAdjustment({
+      currentCash: portfolio.cashReserve,
+      mode,
+      amount,
+    });
+  const now = Date.now();
+
+  await instantDb.transact([
+    instantDb.tx.portfolios[portfolio.id].update({
+      cashReserve: nextCash,
+      updatedAt: now,
+    }),
+    instantDb.tx.portfolio_events[instantId()].update({
+      portfolioId: portfolio.id,
+      eventType,
+      symbol: eventSymbol,
+      asset: eventAsset,
+      amount: normalizedAmount,
+      status: "Completed",
+      eventAt: now,
+    }),
+  ]);
 }
 
 export async function executeTrade({
