@@ -1,6 +1,9 @@
 import portfolioHoldings from "../data/portfolioHoldings.json";
+import { clampPercentage, strategyFromGrowth } from "../lib/portfolioMetrics";
 
 const INITIAL_CASH = 42905.32;
+const DEFAULT_GROWTH_PCT = 60;
+const defaultStrategy = strategyFromGrowth(DEFAULT_GROWTH_PCT);
 
 /**
  * Derive transactions from portfolio holdings using their dateAcquired field.
@@ -32,6 +35,12 @@ export const initialPortfolioState = {
   transactions: allTransactions,
   holdings: portfolioHoldings,
   cash: INITIAL_CASH,
+  strategyGrowthPct: defaultStrategy.strategyGrowthPct,
+  strategyFixedPct: defaultStrategy.strategyFixedPct,
+  portfolioId: null,
+  isHydrated: false,
+  isSyncing: false,
+  syncError: "",
 };
 
 function addTransaction(transactions, symbol, name, type, amount, shares) {
@@ -62,6 +71,23 @@ function addTransaction(transactions, symbol, name, type, amount, shares) {
 
 export function portfolioReducer(state = initialPortfolioState, action) {
   switch (action.type) {
+    case "HYDRATE_PORTFOLIO": {
+      return {
+        ...state,
+        ...action.payload,
+        isHydrated: true,
+        syncError: "",
+      };
+    }
+    case "SET_PORTFOLIO_SYNCING":
+      return { ...state, isSyncing: Boolean(action.payload) };
+    case "SET_PORTFOLIO_SYNC_ERROR":
+      return { ...state, syncError: action.payload || "", isSyncing: false };
+    case "SET_STRATEGY_SPLIT": {
+      const growthPct = clampPercentage(action.payload);
+      const strategy = strategyFromGrowth(growthPct);
+      return { ...state, ...strategy };
+    }
     case "BUY_ADD_HOLDING": {
       const { symbol, name, sector, price, shares } = action.payload;
       const cost = price * shares;
@@ -99,6 +125,7 @@ export function portfolioReducer(state = initialPortfolioState, action) {
         ...state,
         holdings: newHoldings,
         cash: state.cash - cost,
+        syncError: "",
         transactions: addTransaction(
           state.transactions,
           symbol,
@@ -132,6 +159,7 @@ export function portfolioReducer(state = initialPortfolioState, action) {
         ...state,
         holdings: newHoldings,
         cash: state.cash + proceeds,
+        syncError: "",
         transactions: addTransaction(
           state.transactions,
           symbol,

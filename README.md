@@ -16,6 +16,7 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 1. Install dependencies:
    `yarn install`
 2. Copy [.env.example](.env.example) to `.env.local` and add your keys:
+   - `VITE_INSTANTDB_APP_ID`
    - `AI_PROVIDER` (`openai`)
    - `AI_MODEL` (`gpt-4.2`)
    - `POLYGON_API_KEY`
@@ -26,6 +27,16 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
    - `PUSHOVER_URL`
 3. Run the app:
    `yarn run dev`
+
+## InstantDB Setup
+
+Frontend portfolio persistence and authentication use InstantDB.
+
+- Website configuration guide: [`INSTANTDB_SETUP.md`](INSTANTDB_SETUP.md)
+- Schema + perms files: [`instant.schema.ts`](instant.schema.ts), [`instant.perms.ts`](instant.perms.ts)
+- Uses magic-code authentication by default.
+- Persists users, portfolios, positions, and portfolio events.
+- Computes `totalValue` and `investedAmount` from position data in phase 1.
 
 ## AI Service (Python 3.12+)
 

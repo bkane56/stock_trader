@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { lazy, Suspense, useEffect, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
   NavLink,
@@ -24,10 +24,22 @@ import {
 import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { MobileNav } from "./components/MobileNav";
+import { InstantMagicCodeLogin } from "./components/InstantMagicCodeLogin";
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
 import { fetchLatestMorningBriefing } from "./services/briefings";
+import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
+import { instantDb, isInstantDbEnabled } from "./services/instantdb/client";
+import {
+  buildPortfolioState,
+  ensurePortfolioForUser,
+  executeTrade,
+  pickPortfolioData,
+  pickUserPortfolio,
+  persistStrategySplit,
+  resolveDisplayUser,
+} from "./services/instantdb/portfolioStore";
 
 const TradeModal = lazy(() =>
   import("./components/TradeModal").then((m) => ({ default: m.TradeModal }))
@@ -37,24 +49,77 @@ const StrategyBuilder = lazy(() =>
     default: m.StrategyBuilder,
   }))
 );
+const FALLBACK_AUTH_STATE = { isLoading: false, user: null, error: null };
+const FALLBACK_QUERY_STATE = { isLoading: false, error: null, data: null };
+const INSTANT_PORTFOLIO_QUERY = {
+  users: {},
+  portfolios: {},
+  positions: {},
+  portfolio_events: {},
+};
 
 export default function App() {
   const dispatch = useDispatch();
-  const {
-    isTradeModalOpen,
-    selectedStock,
-    strategySplit,
-    showAllTransactions,
-  } = useSelector((state) => state.trade);
-  const { transactions, holdings, cash } = useSelector(
-    (state) => state.portfolio
+  const { isTradeModalOpen, selectedStock, showAllTransactions } = useSelector(
+    (state) => state.trade
   );
-  const totalValue = holdings.reduce((sum, h) => sum + h.totalValue, 0);
+  const {
+    transactions,
+    holdings,
+    cash,
+    portfolioId,
+    strategyGrowthPct,
+    strategyFixedPct,
+    isSyncing,
+    syncError,
+  } = useSelector((state) => state.portfolio);
+  const metrics = useMemo(
+    () => calculatePortfolioMetrics(holdings, cash),
+    [holdings, cash]
+  );
+  const totalValue = metrics.totalValue;
+
+  const authState = isInstantDbEnabled
+    ? instantDb.useAuth()
+    : FALLBACK_AUTH_STATE;
+  const portfolioQuery = isInstantDbEnabled
+    ? instantDb.useQuery(INSTANT_PORTFOLIO_QUERY)
+    : FALLBACK_QUERY_STATE;
+  const signedInUser = authState.user || null;
+
   const location = useLocation();
   const navigate = useNavigate();
   const [morningBriefing, setMorningBriefing] = useState(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState("");
+  const strategySaveTimer = useRef(null);
+  const portfolioBootstrapRef = useRef(new Set());
+
+  const userProfileRecord = useMemo(() => {
+    if (!portfolioQuery?.data || !signedInUser) return null;
+    return (
+      portfolioQuery.data.users?.find(
+        (user) =>
+          user.id === signedInUser.id || user.userId === signedInUser.id
+      ) || null
+    );
+  }, [portfolioQuery?.data, signedInUser]);
+
+  const activeUser = useMemo(
+    () =>
+      isInstantDbEnabled
+        ? resolveDisplayUser(signedInUser, userProfileRecord)
+        : currentUser,
+    [signedInUser, userProfileRecord]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (strategySaveTimer.current) {
+        clearTimeout(strategySaveTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -81,6 +146,74 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      portfolioQuery.error ||
+      !portfolioQuery.data
+    ) {
+      return;
+    }
+
+    const existingPortfolio = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    if (existingPortfolio || portfolioBootstrapRef.current.has(signedInUser.id)) {
+      return;
+    }
+
+    portfolioBootstrapRef.current.add(signedInUser.id);
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    ensurePortfolioForUser(signedInUser.id)
+      .then(() => {
+        dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      })
+      .catch((error) => {
+        dispatch({
+          type: "SET_PORTFOLIO_SYNC_ERROR",
+          payload: error?.message || "Failed to create your InstantDB portfolio.",
+        });
+      })
+      .finally(() => {
+        dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+      });
+  }, [
+    dispatch,
+    portfolioQuery.data,
+    portfolioQuery.error,
+    portfolioQuery.isLoading,
+    signedInUser,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      portfolioQuery.error ||
+      !portfolioQuery.data
+    ) {
+      return;
+    }
+
+    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    if (!portfolioRecord) return;
+
+    const { positions, events } = pickPortfolioData(
+      portfolioQuery.data,
+      portfolioRecord.id
+    );
+    const nextState = buildPortfolioState(portfolioRecord, positions, events);
+    dispatch({ type: "HYDRATE_PORTFOLIO", payload: nextState });
+    dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+  }, [
+    dispatch,
+    portfolioQuery.data,
+    portfolioQuery.error,
+    portfolioQuery.isLoading,
+    signedInUser,
+  ]);
+
   const openTradeModal = (holding) => {
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
     dispatch({ type: "SET_SELECTED_STOCK", payload: holding });
@@ -93,15 +226,91 @@ export default function App() {
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: false });
     dispatch({ type: "SET_SELECTED_STOCK", payload: null });
   };
-  const setStrategySplit = (v) =>
-    dispatch({ type: "SET_STRATEGY_SPLIT", payload: v });
+  const setStrategySplit = (nextGrowthPct) => {
+    dispatch({ type: "SET_STRATEGY_SPLIT", payload: nextGrowthPct });
+    if (!isInstantDbEnabled || !portfolioId) return;
+    if (strategySaveTimer.current) {
+      clearTimeout(strategySaveTimer.current);
+    }
+    strategySaveTimer.current = setTimeout(async () => {
+      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+      try {
+        await persistStrategySplit(portfolioId, nextGrowthPct);
+        dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      } catch (error) {
+        dispatch({
+          type: "SET_PORTFOLIO_SYNC_ERROR",
+          payload:
+            error?.message || "Failed to persist strategy split to InstantDB.",
+        });
+      } finally {
+        dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+      }
+    }, 250);
+  };
   const toggleShowAllTransactions = () =>
     dispatch({ type: "TOGGLE_SHOW_ALL_TRANSACTIONS" });
+
+  const handleExecuteTrade = async (action) => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      !portfolioQuery.data
+    ) {
+      dispatch(action);
+      return;
+    }
+
+    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    if (!portfolioRecord) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: "Portfolio not ready yet. Please retry in a moment.",
+      });
+      return;
+    }
+
+    const { positions } = pickPortfolioData(portfolioQuery.data, portfolioRecord.id);
+    const mode = action.type === "BUY_ADD_HOLDING" ? "buy" : "sell";
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    try {
+      await executeTrade({
+        portfolio: portfolioRecord,
+        positions,
+        mode,
+        ...action.payload,
+      });
+      dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+    } catch (error) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: error?.message || "Unable to execute trade in InstantDB.",
+      });
+    } finally {
+      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+    }
+  };
+
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/portfolio", label: "Portfolio", icon: Briefcase },
     { to: "/strategy", label: "Strategy Builder", icon: PieChart },
   ];
+
+  if (isInstantDbEnabled && authState.isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <p className="text-sm font-bold uppercase tracking-widest text-slate-400">
+          Loading account...
+        </p>
+      </div>
+    );
+  }
+
+  if (isInstantDbEnabled && !signedInUser) {
+    return <InstantMagicCodeLogin db={instantDb} authError={authState.error} />;
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 selection:bg-teal-100 selection:text-teal-900">
@@ -164,19 +373,27 @@ export default function App() {
               <div className="flex items-center gap-4 border-l pl-6 border-slate-200">
                 <div className="text-right hidden sm:block">
                   <p className="text-sm font-black text-slate-900">
-                    {currentUser.fullName}
+                    {activeUser?.fullName || "Portfolio User"}
                   </p>
                   <p className="text-[10px] font-bold text-teal-600 uppercase tracking-widest">
-                    {currentUser.tier}
+                    {activeUser?.tier || "Account"}
                   </p>
                 </div>
                 <div className="w-11 h-11 rounded-full border-2 border-white shadow-md overflow-hidden bg-slate-100">
                   <img
                     alt="User Profile"
-                    src={currentUser.avatarUrl}
+                    src={activeUser?.avatarUrl || currentUser.avatarUrl}
                     className="w-full h-full object-cover"
                   />
                 </div>
+                {isInstantDbEnabled ? (
+                  <button
+                    onClick={() => instantDb.auth.signOut()}
+                    className="hidden sm:block text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors"
+                  >
+                    Sign out
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -186,6 +403,14 @@ export default function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative z-10">
+        {(syncError || isSyncing) && (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              {isSyncing ? "Syncing portfolio..." : syncError}
+            </p>
+          </div>
+        )}
+
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route
@@ -198,7 +423,11 @@ export default function App() {
                   goToStrategy={() => navigate("/strategy")}
                   holdings={holdings}
                   cash={cash}
+                  investedAmount={metrics.investedAmount}
                   totalValue={totalValue}
+                  strategyGrowthPct={strategyGrowthPct}
+                  strategyFixedPct={strategyFixedPct}
+                  user={activeUser || currentUser}
                   morningBriefing={morningBriefing}
                   isBriefingLoading={isBriefingLoading}
                   briefingError={briefingError}
@@ -229,7 +458,7 @@ export default function App() {
                   }
                 >
                   <StrategyBuilder
-                    strategySplit={strategySplit}
+                    strategySplit={strategyGrowthPct}
                     setStrategySplit={setStrategySplit}
                   />
                 </Suspense>
@@ -281,7 +510,7 @@ export default function App() {
               holding={selectedStock}
               cash={cash}
               holdings={holdings}
-              onExecuteTrade={(action) => dispatch(action)}
+              onExecuteTrade={handleExecuteTrade}
             />
           </Suspense>
         )}

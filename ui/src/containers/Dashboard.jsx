@@ -9,7 +9,6 @@ import {
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
-import { currentUser } from "../mocks/currentUser";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -26,7 +25,11 @@ export function Dashboard({
   goToStrategy,
   holdings,
   cash,
+  investedAmount,
   totalValue,
+  strategyGrowthPct,
+  strategyFixedPct,
+  user,
   morningBriefing,
   isBriefingLoading,
   briefingError,
@@ -34,7 +37,6 @@ export function Dashboard({
   const visibleTransactions = showAllTransactions
     ? transactions
     : transactions.slice(0, 3);
-  const investedAmount = Math.max(0, totalValue - cash);
   const deploymentPct =
     totalValue > 0 ? Math.min(100, (investedAmount / totalValue) * 100) : 0;
   const topActions = (morningBriefing?.holdings_actions || []).slice(0, 3);
@@ -56,7 +58,7 @@ export function Dashboard({
     >
       <header>
         <h1 className="text-4xl font-black text-slate-900 tracking-tight">
-          {getGreeting()}, {currentUser.firstName}.
+          {getGreeting()}, {user?.firstName || "Investor"}.
         </h1>
         <p className="text-slate-500 font-medium mt-2 flex items-center gap-2">
           Your AI-driven portfolio is performing{" "}
@@ -146,7 +148,8 @@ export function Dashboard({
                 Strategy Overview
               </h2>
               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                Current AI rebalancing: Aggressive Growth
+                Current AI rebalancing:{" "}
+                {strategyGrowthPct >= 60 ? "Growth Tilt" : "Fixed Tilt"}
               </p>
             </div>
             <button
@@ -161,12 +164,14 @@ export function Dashboard({
             <div className="space-y-3">
               <div className="flex justify-between items-end">
                 <Badge variant="info">FIXED INCOME</Badge>
-                <span className="text-sm font-black text-slate-900">35%</span>
+                <span className="text-sm font-black text-slate-900">
+                  {strategyFixedPct}%
+                </span>
               </div>
               <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: "35%" }}
+                  animate={{ width: `${strategyFixedPct}%` }}
                   className="h-full bg-teal-500 rounded-full"
                 />
               </div>
@@ -175,12 +180,14 @@ export function Dashboard({
             <div className="space-y-3">
               <div className="flex justify-between items-end">
                 <Badge variant="info">GROWTH EQUITY</Badge>
-                <span className="text-sm font-black text-slate-900">65%</span>
+                <span className="text-sm font-black text-slate-900">
+                  {strategyGrowthPct}%
+                </span>
               </div>
               <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: "65%" }}
+                  animate={{ width: `${strategyGrowthPct}%` }}
                   className="h-full bg-blue-500 rounded-full"
                 />
               </div>
@@ -192,7 +199,15 @@ export function Dashboard({
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
                 Risk Profile
               </h3>
-              <p className="text-xl font-black text-slate-900">Moderate-High</p>
+              <p className="text-xl font-black text-slate-900">
+                {strategyGrowthPct >= 80
+                  ? "Aggressive"
+                  : strategyGrowthPct >= 60
+                    ? "Moderate-High"
+                    : strategyGrowthPct >= 40
+                      ? "Moderate"
+                      : "Conservative"}
+              </p>
             </div>
             <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
