@@ -59,3 +59,43 @@ class MarketResearchResponse(BaseModel):
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+class HoldingAction(BaseModel):
+    symbol: str
+    action: str = Field(pattern="^(sell|trim|hold|add|watch)$")
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class CashDeploymentOption(BaseModel):
+    symbol: str
+    sector: str
+    thesis: str
+    risk: str
+    entry_style: str = Field(pattern="^(immediate|pullback|watchlist)$")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class RiskFlag(BaseModel):
+    category: str
+    severity: str = Field(pattern="^(low|medium|high)$")
+    summary: str
+
+
+class MorningBriefingResponse(BaseModel):
+    execution_mode: str = Field(default="manual", pattern="^(manual)$")
+    holdings_actions: list[HoldingAction]
+    cash_deployment_options: list[CashDeploymentOption]
+    macro_news_summary: str
+    risk_flags: list[RiskFlag]
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+class MorningBriefingGenerateRequest(BaseModel):
+    holdings: list[str] = Field(default_factory=list)
+    cash_available: float = Field(default=0.0, ge=0.0)
+    focus: str = ""
+    persist: bool = True

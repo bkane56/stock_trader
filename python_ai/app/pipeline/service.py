@@ -1,17 +1,30 @@
+import asyncio
 import json
 import logging
+from pathlib import Path
 from threading import Lock
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import ValidationError
+
+from app.agents.openai_agents_runtime import OpenAIAgentsRuntime
 from app.agents.financial_advisor import FinancialAdvisorAgent
+from app.agents.prompts import (
+    DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+    DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT,
+)
 from app.agents.research_agent import ResearchAgent
 from app.core.config import get_settings
 from app.schemas.recommendations import (
+    CashDeploymentOption,
     DoNotBuyIdea,
     HoldingResearch,
+    HoldingAction,
     MarketResearchResponse,
+    MorningBriefingResponse,
     Recommendation,
+    RiskFlag,
     SectorResearch,
     StockIdea,
 )
@@ -27,6 +40,9 @@ _RUNTIME_STATUS: dict[str, str] = {
     "last_updated": "",
 }
 _LAST_RECOMMENDATION_TOOLS_USED: list[str] = []
+_LAST_MCP_RUNTIME_DEBUG: dict[str, Any] = {}
+_ARTIFACTS_DIR = Path("artifacts")
+_MORNING_BRIEFING_FILE_GLOB = "morning_briefing_*.json"
 
 
 def _set_runtime_status(
@@ -58,6 +74,37 @@ def _set_last_recommendation_tools_used(tool_names: list[str]) -> None:
 def latest_recommendation_tools_used() -> list[str]:
     with _RUNTIME_STATUS_LOCK:
         return list(_LAST_RECOMMENDATION_TOOLS_USED)
+
+
+def _set_last_mcp_runtime_debug(payload: dict[str, Any]) -> None:
+    with _RUNTIME_STATUS_LOCK:
+        global _LAST_MCP_RUNTIME_DEBUG
+        _LAST_MCP_RUNTIME_DEBUG = dict(payload)
+
+
+def latest_mcp_runtime_debug() -> dict[str, Any]:
+    with _RUNTIME_STATUS_LOCK:
+        return dict(_LAST_MCP_RUNTIME_DEBUG)
+
+
+def _set_last_mcp_runtime_error(
+    *,
+    mode: str,
+    phase: str,
+    configured: dict[str, Any],
+    exc: Exception,
+    connected: dict[str, Any] | None = None,
+) -> None:
+    _set_last_mcp_runtime_debug(
+        {
+            "mode": mode,
+            "phase": phase,
+            "configured": configured,
+            "last_connected": connected or {},
+            "last_error": str(exc),
+            "last_error_type": exc.__class__.__name__,
+        }
+    )
 
 
 def _scaffold_recommendations(
@@ -92,40 +139,92 @@ def _normalize_symbols(symbols: list[str]) -> list[str]:
     return normalized
 
 
-def _create_openai_client(api_key: str) -> Any:
-    from openai import OpenAI
+def _map_research_stance_to_action(stance: str) -> str:
+    mapping = {
+        "exit": "sell",
+        "trim": "trim",
+        "hold": "hold",
+        "add": "add",
+        "watch": "watch",
+    }
+    normalized = stance.strip().lower()
+    return mapping.get(normalized, "watch")
 
-    return OpenAI(api_key=api_key)
+
+def _default_morning_focus(raw_focus: str) -> str:
+    trimmed = raw_focus.strip()
+    if trimmed:
+        return trimmed
+    return "general stock market news, macroeconomy, and world news"
 
 
-def _chat_tools_from_agent(agent: Any) -> list[dict[str, Any]]:
-    chat_tools: list[dict[str, Any]] = []
-    for schema in agent.tool_schemas():
-        if schema.get("type") != "function":
-            continue
-        name = str(schema.get("name", "")).strip()
-        if not name:
-            continue
-        chat_tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": schema.get("description", ""),
-                    "parameters": schema.get("parameters", {"type": "object"}),
-                },
-            }
+def _build_risk_flags(
+    research: MarketResearchResponse,
+) -> list[RiskFlag]:
+    flags: list[RiskFlag] = []
+    severe_do_not_buy = sorted(
+        [row for row in research.do_not_buy if row.confidence >= 0.65],
+        key=lambda row: row.confidence,
+        reverse=True,
+    )[:3]
+    for row in severe_do_not_buy:
+        flags.append(
+            RiskFlag(
+                category="symbol",
+                severity="high" if row.confidence >= 0.8 else "medium",
+                summary=f"{row.symbol}: {row.reason}",
+            )
         )
-    return chat_tools
+
+    macro_text = research.macro_summary.lower()
+    macro_keywords = (
+        "inflation",
+        "recession",
+        "geopolitical",
+        "war",
+        "tariff",
+        "volatility",
+        "liquidity",
+        "credit",
+    )
+    if any(keyword in macro_text for keyword in macro_keywords):
+        flags.append(
+            RiskFlag(
+                category="macro",
+                severity="medium",
+                summary="Macro conditions include elevated uncertainty; size positions conservatively.",
+            )
+        )
+
+    if not flags:
+        flags.append(
+            RiskFlag(
+                category="macro",
+                severity="low",
+                summary="No elevated systemic risk signal detected in current briefing.",
+            )
+        )
+    return flags
+
+
+def _run_async(coro: Any) -> Any:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Sync pipeline methods are expected to run outside active event loops.
+    raise RuntimeError(
+        "OpenAI Agents SDK execution requires sync context without a running event loop."
+    )
 
 
 def _build_user_prompt(symbols: list[str]) -> str:
     return (
         "Create one recommendation per ticker using only provided context and any "
-        "tools you call.\n"
-        "Before final recommendations, call `get_polygon_snapshot` for each ticker "
-        "to gather end-of-day market context.\n"
-        "If you need broader context, call `run_market_research` first, then use that "
+        "MCP tools you call.\n"
+        "Before final recommendations, gather market context for each ticker "
+        "from available MCP market-data tools.\n"
+        "Call the `Researcher` tool once for cross-market context, then use that "
         "output to refine per-ticker recommendations.\n"
         f"Tickers: {', '.join(symbols)}\n"
         "Return STRICT JSON with this shape and no markdown:\n"
@@ -191,10 +290,10 @@ def _build_research_user_prompt(
     focus_text = focus.strip() or "broad market opportunities"
     return (
         "Build a practical market research brief for an active trader.\n"
-        "Before finalizing, gather internet evidence and skill guidance with tools.\n"
-        "First call `search_web` for broad context, then call `search_investment_news`.\n"
-        "When relevant, call `search_skills` and `read_skill` for specialized workflows.\n"
-        "Use `get_sector_performance` for momentum context.\n"
+        "Before finalizing, gather internet evidence and market context with MCP tools.\n"
+        "Start with broad market and world-news context using "
+        "`get_general_market_news_digest` once.\n"
+        "Run multiple searches and compare sources before concluding.\n"
         f"Minimum confidence for top_3_buys is {min_buy_confidence:.2f}.\n"
         f"Current holdings: {holdings_text}\n"
         f"Research focus: {focus_text}\n"
@@ -374,116 +473,75 @@ def _extract_market_research_from_model_output(
     )
 
 
-def _run_openai_tool_loop(
-    advisor_agent: FinancialAdvisorAgent,
+async def _run_openai_agents_recommendations_async(
+    *,
+    settings: Any,
     symbols: list[str],
     require_research_context: bool,
-    api_key: str,
 ) -> tuple[list[Recommendation], list[str]]:
-    now = datetime.now(timezone.utc)
-    client = _create_openai_client(api_key=api_key)
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": advisor_agent.system_prompt()},
-        {"role": "user", "content": _build_user_prompt(symbols)},
-    ]
-    tools = _chat_tools_from_agent(advisor_agent)
-    logger.info(
-        "Recommendation run using OpenAI model=%s symbols=%s tools=%d",
-        advisor_agent.identity.model,
-        ",".join(symbols),
-        len(tools),
-    )
+    from agents import Agent, Runner
 
-    final_text = ""
-    called_tools: set[str] = set()
-    for turn in range(8):
-        response = client.chat.completions.create(
-            model=advisor_agent.identity.model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-        )
-        message = response.choices[0].message
-        tool_calls = message.tool_calls or []
-
-        if tool_calls:
-            logger.info(
-                "Model requested %d tool call(s) on turn %d.",
-                len(tool_calls),
-                turn + 1,
-            )
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": call.type,
-                            "function": {
-                                "name": call.function.name,
-                                "arguments": call.function.arguments,
-                            },
-                        }
-                        for call in tool_calls
-                    ],
-                }
-            )
-            for call in tool_calls:
-                called_tools.add(call.function.name)
-                try:
-                    arguments = json.loads(call.function.arguments or "{}")
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Tool arguments were invalid JSON for tool=%s; using empty object.",
-                        call.function.name,
-                    )
-                    arguments = {}
-                logger.info("Executing tool call: %s", call.function.name)
-                tool_output = advisor_agent.execute_tool(
-                    tool_name=call.function.name,
-                    arguments=arguments,
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": tool_output,
-                    }
-                )
-            continue
-
-        final_text = (message.content or "").strip()
-        tool_names = {
-            str(item.get("function", {}).get("name", "")).strip()
-            for item in tools
-            if isinstance(item, dict)
+    runtime = OpenAIAgentsRuntime(settings)
+    runtime.ensure_openai_api_key()
+    groups = runtime.mcp_server_groups()
+    configured_debug = runtime.debug_snapshot()
+    _set_last_mcp_runtime_debug(
+        {
+            "mode": "recommendations",
+            "phase": "configured",
+            "configured": configured_debug,
+            "last_connected": {},
         }
-        if (
-            require_research_context
-            and "run_market_research" in tool_names
-            and "run_market_research" not in called_tools
-        ):
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": final_text,
-                }
-            )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Before finalizing, you MUST call `run_market_research` once "
-                        "to gather internet + sector context, then return updated strict JSON."
-                    ),
-                }
-            )
-            final_text = ""
-            continue
-        logger.info("Model returned final recommendation payload on turn %d.", turn + 1)
-        break
+    )
+    now = datetime.now(timezone.utc)
 
+    async with runtime.connected_servers(groups.researcher_params) as researcher_servers:
+        researcher_instructions = settings.resolved_ai_system_prompt(
+            DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+        )
+        researcher = Agent(
+            name="Researcher",
+            instructions=researcher_instructions,
+            model=settings.resolved_ai_model(),
+            mcp_servers=researcher_servers,
+        )
+        research_tool = researcher.as_tool(
+            tool_name="Researcher",
+            tool_description=(
+                "Research online financial news and opportunities, then return a concise brief."
+            ),
+        )
+
+        async with runtime.connected_servers(groups.trader_params) as trader_servers:
+            _set_last_mcp_runtime_debug(
+                {
+                    "mode": "recommendations",
+                    "phase": "connected",
+                    "configured": configured_debug,
+                    "last_connected": {
+                        "researcher_server_count": len(researcher_servers),
+                        "trader_server_count": len(trader_servers),
+                    },
+                }
+            )
+            advisor_instructions = settings.resolved_ai_system_prompt(
+                DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+            )
+            advisor = Agent(
+                name="Financial Advisor",
+                instructions=advisor_instructions,
+                model=settings.resolved_ai_model(),
+                tools=[research_tool],
+                mcp_servers=trader_servers,
+            )
+            prompt = _build_user_prompt(symbols)
+            if require_research_context:
+                prompt += (
+                    "\nYou MUST call the `Researcher` tool once before finalizing your JSON."
+                )
+            result = await Runner.run(advisor, prompt, max_turns=30)
+
+    final_text = str(getattr(result, "final_output", "")).strip()
     if not final_text:
         raise ValueError("Model did not return final content.")
 
@@ -492,112 +550,82 @@ def _run_openai_tool_loop(
         symbols=symbols,
         generated_at=now,
     )
-    return recommendations, sorted(called_tools)
+    tools_used = ["Researcher"] if require_research_context else []
+    return recommendations, tools_used
 
 
-def _run_openai_research_loop(
-    research_agent: ResearchAgent,
+def _run_openai_agents_recommendations(
+    *,
+    settings: Any,
+    symbols: list[str],
+    require_research_context: bool,
+) -> tuple[list[Recommendation], list[str]]:
+    return _run_async(
+        _run_openai_agents_recommendations_async(
+            settings=settings,
+            symbols=symbols,
+            require_research_context=require_research_context,
+        )
+    )
+
+
+async def _run_openai_agents_research_async(
+    *,
+    settings: Any,
     holdings: list[str],
     focus: str,
     min_buy_confidence: float,
     require_web_search: bool,
-    api_key: str,
 ) -> MarketResearchResponse:
-    now = datetime.now(timezone.utc)
-    client = _create_openai_client(api_key=api_key)
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": research_agent.system_prompt()},
+    from agents import Agent, Runner
+
+    runtime = OpenAIAgentsRuntime(settings)
+    runtime.ensure_openai_api_key()
+    groups = runtime.mcp_server_groups()
+    configured_debug = runtime.debug_snapshot()
+    _set_last_mcp_runtime_debug(
         {
-            "role": "user",
-            "content": _build_research_user_prompt(
-                holdings=holdings,
-                focus=focus,
-                min_buy_confidence=min_buy_confidence,
-            ),
-        },
-    ]
-    tools = _chat_tools_from_agent(research_agent)
-    logger.info(
-        "Market research run using OpenAI model=%s holdings=%s tools=%d",
-        research_agent.identity.model,
-        ",".join(holdings),
-        len(tools),
+            "mode": "research",
+            "phase": "configured",
+            "configured": configured_debug,
+            "last_connected": {},
+        }
     )
+    now = datetime.now(timezone.utc)
 
-    final_text = ""
-    called_tools: set[str] = set()
-    for turn in range(8):
-        response = client.chat.completions.create(
-            model=research_agent.identity.model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
+    async with runtime.connected_servers(groups.researcher_params) as researcher_servers:
+        _set_last_mcp_runtime_debug(
+            {
+                "mode": "research",
+                "phase": "connected",
+                "configured": configured_debug,
+                "last_connected": {
+                    "researcher_server_count": len(researcher_servers),
+                    "trader_server_count": 0,
+                },
+            }
         )
-        message = response.choices[0].message
-        tool_calls = message.tool_calls or []
-
-        if tool_calls:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": call.type,
-                            "function": {
-                                "name": call.function.name,
-                                "arguments": call.function.arguments,
-                            },
-                        }
-                        for call in tool_calls
-                    ],
-                }
+        instructions = settings.resolved_ai_system_prompt(
+            DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+        )
+        researcher = Agent(
+            name="Researcher",
+            instructions=instructions,
+            model=settings.resolved_ai_model(),
+            mcp_servers=researcher_servers,
+        )
+        prompt = _build_research_user_prompt(
+            holdings=holdings,
+            focus=focus,
+            min_buy_confidence=min_buy_confidence,
+        )
+        if require_web_search:
+            prompt += (
+                "\nUse web-facing MCP tools for current internet evidence before finalizing."
             )
-            for call in tool_calls:
-                called_tools.add(call.function.name)
-                try:
-                    arguments = json.loads(call.function.arguments or "{}")
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Research tool arguments invalid JSON for tool=%s; using empty object.",
-                        call.function.name,
-                    )
-                    arguments = {}
-                tool_output = research_agent.execute_tool(
-                    tool_name=call.function.name,
-                    arguments=arguments,
-                )
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": tool_output,
-                    }
-                )
-            continue
+        result = await Runner.run(researcher, prompt, max_turns=30)
 
-        final_text = (message.content or "").strip()
-        if require_web_search and "search_web" not in called_tools:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": final_text,
-                }
-            )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Before finalizing, you MUST call `search_web` at least once "
-                        "for current internet evidence, then return updated strict JSON."
-                    ),
-                }
-            )
-            final_text = ""
-            continue
-        break
-
+    final_text = str(getattr(result, "final_output", "")).strip()
     if not final_text:
         raise ValueError("Model did not return final research payload.")
 
@@ -606,6 +634,25 @@ def _run_openai_research_loop(
         holdings=holdings,
         min_buy_confidence=min_buy_confidence,
         generated_at=now,
+    )
+
+
+def _run_openai_agents_research(
+    *,
+    settings: Any,
+    holdings: list[str],
+    focus: str,
+    min_buy_confidence: float,
+    require_web_search: bool,
+) -> MarketResearchResponse:
+    return _run_async(
+        _run_openai_agents_research_async(
+            settings=settings,
+            holdings=holdings,
+            focus=focus,
+            min_buy_confidence=min_buy_confidence,
+            require_web_search=require_web_search,
+        )
     )
 
 
@@ -664,11 +711,10 @@ def generate_initial_recommendations(symbols: list[str]) -> list[Recommendation]
         return _scaffold_recommendations(normalized_symbols, advisor_agent)
 
     try:
-        recommendations, tools_used = _run_openai_tool_loop(
-            advisor_agent=advisor_agent,
+        recommendations, tools_used = _run_openai_agents_recommendations(
+            settings=settings,
             symbols=normalized_symbols,
             require_research_context=require_research_context,
-            api_key=api_key,
         )
         logger.info(
             "Live OpenAI recommendation run succeeded with %d recommendation(s).",
@@ -682,9 +728,35 @@ def generate_initial_recommendations(symbols: list[str]) -> list[Recommendation]
         )
         _set_last_recommendation_tools_used(tools_used)
         return recommendations
+    except asyncio.CancelledError as exc:
+        logger.exception(
+            "Live OpenAI recommendation run cancelled. Falling back to scaffold."
+        )
+        runtime = OpenAIAgentsRuntime(settings=settings)
+        _set_last_mcp_runtime_error(
+            mode="recommendations",
+            phase="failed",
+            configured=runtime.debug_snapshot(),
+            exc=exc,
+        )
+        _set_runtime_status(
+            mode="fallback",
+            reason=f"Live OpenAI run cancelled: {exc}",
+            provider=provider,
+            model=advisor_agent.identity.model,
+        )
+        _set_last_recommendation_tools_used([])
+        return _scaffold_recommendations(normalized_symbols, advisor_agent)
     except Exception as exc:
         logger.exception(
             "Live OpenAI recommendation run failed. Falling back to scaffold."
+        )
+        runtime = OpenAIAgentsRuntime(settings=settings)
+        _set_last_mcp_runtime_error(
+            mode="recommendations",
+            phase="failed",
+            configured=runtime.debug_snapshot(),
+            exc=exc,
         )
         _set_runtime_status(
             mode="fallback",
@@ -755,16 +827,49 @@ def generate_market_research(holdings: list[str], focus: str = "") -> MarketRese
         )
 
     try:
-        return _run_openai_research_loop(
-            research_agent=research_agent,
+        return _run_openai_agents_research(
+            settings=settings,
             holdings=normalized_holdings,
             focus=focus,
             min_buy_confidence=min_buy_confidence,
             require_web_search=require_web_search,
-            api_key=api_key,
+        )
+    except asyncio.CancelledError as exc:
+        logger.exception(
+            "Live OpenAI market research run cancelled. Returning fallback payload."
+        )
+        runtime = OpenAIAgentsRuntime(settings=settings)
+        _set_last_mcp_runtime_error(
+            mode="research",
+            phase="failed",
+            configured=runtime.debug_snapshot(),
+            exc=exc,
+        )
+        return MarketResearchResponse(
+            holdings_review=[
+                HoldingResearch(
+                    symbol=symbol,
+                    stance="watch",
+                    confidence=0.2,
+                    reason=f"Live research run cancelled: {exc}",
+                )
+                for symbol in normalized_holdings
+            ],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[],
+            do_not_buy=[],
+            macro_summary="Live research cancelled; review logs and retry.",
         )
     except Exception as exc:
         logger.exception("Live OpenAI market research run failed. Returning fallback payload.")
+        runtime = OpenAIAgentsRuntime(settings=settings)
+        _set_last_mcp_runtime_error(
+            mode="research",
+            phase="failed",
+            configured=runtime.debug_snapshot(),
+            exc=exc,
+        )
         return MarketResearchResponse(
             holdings_review=[
                 HoldingResearch(
@@ -782,6 +887,89 @@ def generate_market_research(holdings: list[str], focus: str = "") -> MarketRese
             macro_summary="Live research failed; review logs and retry.",
         )
 
+
+def generate_morning_briefing(
+    *,
+    holdings: list[str],
+    cash_available: float,
+    focus: str = "",
+) -> MorningBriefingResponse:
+    settings = get_settings()
+    normalized_holdings = _normalize_symbols(holdings)
+    research_focus = _default_morning_focus(focus)
+    research = generate_market_research(holdings=normalized_holdings, focus=research_focus)
+
+    holdings_actions = [
+        HoldingAction(
+            symbol=row.symbol,
+            action=_map_research_stance_to_action(row.stance),
+            confidence=row.confidence,
+            reason=row.reason,
+        )
+        for row in research.holdings_review
+    ]
+
+    min_cash_to_deploy = max(0.0, float(settings.MORNING_BRIEFING_MIN_CASH))
+    cash_deployment_options: list[CashDeploymentOption] = []
+    if cash_available >= min_cash_to_deploy:
+        cash_deployment_options = [
+            CashDeploymentOption(
+                symbol=row.symbol,
+                sector=row.sector,
+                thesis=row.thesis,
+                risk=row.risk,
+                entry_style=row.entry_style,
+                confidence=row.confidence,
+            )
+            for row in research.top_3_buys
+        ]
+
+    return MorningBriefingResponse(
+        execution_mode="manual",
+        holdings_actions=holdings_actions,
+        cash_deployment_options=cash_deployment_options,
+        macro_news_summary=research.macro_summary,
+        risk_flags=_build_risk_flags(research),
+        generated_at=research.generated_at,
+    )
+
+
+def persist_morning_briefing(briefing: MorningBriefingResponse) -> str:
+    _ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    run_id = briefing.generated_at.strftime("%Y%m%d%H%M%S")
+    path = _ARTIFACTS_DIR / f"morning_briefing_{run_id}.json"
+    path.write_text(
+        json.dumps(briefing.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def latest_persisted_morning_briefing() -> MorningBriefingResponse | None:
+    files = sorted(_ARTIFACTS_DIR.glob(_MORNING_BRIEFING_FILE_GLOB))
+    if not files:
+        return None
+    try:
+        payload = json.loads(files[-1].read_text(encoding="utf-8"))
+        return MorningBriefingResponse.model_validate(payload)
+    except (OSError, ValueError, ValidationError):
+        return None
+
+
+def generate_and_persist_morning_briefing(
+    *,
+    holdings: list[str],
+    cash_available: float,
+    focus: str = "",
+) -> MorningBriefingResponse:
+    briefing = generate_morning_briefing(
+        holdings=holdings,
+        cash_available=cash_available,
+        focus=focus,
+    )
+    persist_morning_briefing(briefing)
+    return briefing
+
 def latest_pipeline_run_summary() -> dict[str, str | int]:
     return {
         "status": "ok",
@@ -790,8 +978,9 @@ def latest_pipeline_run_summary() -> dict[str, str | int]:
     }
 
 
-def runtime_health_details() -> dict[str, str | float | list[str]]:
+def runtime_health_details() -> dict[str, Any]:
     settings = get_settings()
+    runtime = OpenAIAgentsRuntime(settings=settings)
     research_agent = ResearchAgent(settings=settings)
     advisor_agent = FinancialAdvisorAgent(
         settings=settings,
@@ -812,4 +1001,6 @@ def runtime_health_details() -> dict[str, str | float | list[str]]:
     details["serper_api_key_configured"] = "yes" if bool(settings.SERPER_API_KEY.strip()) else "no"
     details["research_min_buy_confidence"] = settings.resolved_research_min_buy_confidence()
     details["configured_advisor_tools"] = advisor_tool_names
+    details["mcp_runtime_configured"] = runtime.debug_snapshot()
+    details["mcp_runtime_last_run"] = latest_mcp_runtime_debug()
     return details

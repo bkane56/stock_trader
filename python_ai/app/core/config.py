@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_LOG_LEVEL: str = "INFO"
     PIPELINE_INTERVAL_MINUTES: int = 60
+    MORNING_BRIEFING_MIN_CASH: float = 1000.0
+    MORNING_BRIEFING_DEFAULT_HOLDINGS: str = "SPY,QQQ,AAPL"
+    MORNING_BRIEFING_DEFAULT_CASH: float = 10000.0
 
     AI_PROVIDER: str = "openai"
     AI_MODEL: str = "gpt-4.2"
@@ -27,9 +30,12 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = ""
 
     POLYGON_API_KEY: str = ""
+    POLYGON_PLAN: str = "free"
+    POLYGON_REALTIME: bool = False
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     SERPER_API_KEY: str = ""
+    BRAVE_API_KEY: str = ""
 
     PUSHOVER_USER: str = ""
     PUSHOVER_TOKEN: str = ""

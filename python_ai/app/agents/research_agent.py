@@ -60,6 +60,8 @@ class ResearchAgent(FunctionalToolProvider):
             DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
         )
         tools_context = (
+            "For morning briefings, call `get_general_market_news_digest` first to collect "
+            "broad stock-market and world-news context before ticker-level conclusions. "
             "Use `search_web` for broad internet search and fresh web snippets. "
             "Use `search_investment_news` to gather recent coverage by holdings, sector, "
             "or topic. Use `get_sector_performance` to compare broad sector momentum. "
@@ -81,6 +83,7 @@ class ResearchAgent(FunctionalToolProvider):
             if tool.get("name") != "run_market_research"
         ]
         return [
+            self._general_market_news_digest_tool_schema(),
             self._web_search_tool_schema(),
             self._news_tool_schema(),
             self._sector_tool_schema(),
@@ -107,6 +110,11 @@ class ResearchAgent(FunctionalToolProvider):
             limit_value = arguments.get("limit", 5)
             limit = limit_value if isinstance(limit_value, int) else 5
             return self._search_web(query=query, limit=limit)
+
+        if tool_name == "get_general_market_news_digest":
+            limit_value = arguments.get("limit_per_query", 3)
+            limit = limit_value if isinstance(limit_value, int) else 3
+            return self._general_market_news_digest(limit_per_query=limit)
 
         if tool_name == "get_sector_performance":
             limit_value = arguments.get("limit", 6)
@@ -141,6 +149,30 @@ class ResearchAgent(FunctionalToolProvider):
                     },
                 },
                 "required": ["query"],
+                "additionalProperties": False,
+            },
+        }
+
+    def _general_market_news_digest_tool_schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": "get_general_market_news_digest",
+            "description": (
+                "Collect broad market and world-news headlines to establish macro context "
+                "before holdings-level recommendations."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit_per_query": {
+                        "type": "integer",
+                        "description": "Maximum results returned per digest query.",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "default": 3,
+                    }
+                },
+                "required": [],
                 "additionalProperties": False,
             },
         }
@@ -362,6 +394,34 @@ class ResearchAgent(FunctionalToolProvider):
                 "returned": len(rows[:safe_limit]),
                 "as_of": "latest_market_quote",
                 "sectors": rows[:safe_limit],
+            }
+        )
+
+    def _general_market_news_digest(self, *, limit_per_query: int) -> str:
+        safe_limit = max(1, min(limit_per_query, 5))
+        topics = [
+            "stock market outlook indices rates inflation",
+            "global macro world news central banks energy supply chain",
+            "corporate earnings guidance risk sentiment",
+        ]
+        digest: list[dict[str, Any]] = []
+        for topic in topics:
+            news_result = json.loads(
+                self._search_investment_news(query=topic, holdings=[], limit=safe_limit)
+            )
+            web_result = json.loads(self._search_web(query=topic, limit=safe_limit))
+            digest.append(
+                {
+                    "topic": topic,
+                    "news": news_result,
+                    "web": web_result,
+                }
+            )
+        return json.dumps(
+            {
+                "returned_topics": len(digest),
+                "limit_per_query": safe_limit,
+                "digest": digest,
             }
         )
 

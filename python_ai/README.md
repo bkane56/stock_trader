@@ -2,6 +2,9 @@
 
 Initial FastAPI scaffold for the AI recommendation pipeline.
 
+Agent execution now uses OpenAI's Agents SDK (`openai-agents`) with MCP-backed tool
+access. The advisor agent can call a dedicated researcher agent as a tool.
+
 Default agent configuration is OpenAI-first:
 
 - `AI_PROVIDER=openai`
@@ -17,8 +20,8 @@ Default prompt text lives in `app/agents/prompts.py` as
 `DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT` and
 `DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT`.
 
-The `FinancialAdvisorAgent` now also appends a skills section to the system prompt
-and exposes two tool definitions that can be passed to model tool-calling APIs:
+The `FinancialAdvisorAgent` appends a skills section to the system prompt and
+exposes tool definitions used by the service health surface:
 
 - `search_skills` (discover skills by keyword)
 - `read_skill` (load the selected skill's `SKILL.md`)
@@ -29,10 +32,20 @@ The research agent (`ResearchAgent`) adds market-intelligence tools:
 - `search_investment_news` (reads recent investment news via Google News RSS)
 - `get_sector_performance` (pulls sector ETF momentum via Yahoo quotes)
 
-The main advisor agent can now call:
+The main advisor flow can now call:
 
 - `run_market_research` (delegates to the research agent and returns holdings review,
   sector outlook, stock ideas, top 3 buys, and do-not-buy ideas)
+
+## MCP Runtime Notes
+
+- Research MCP servers default to:
+  - `uvx mcp-server-fetch`
+  - Brave MCP search (when `BRAVE_API_KEY` is configured)
+- Trader MCP servers include Polygon MCP, and optionally local servers if present:
+  - `accounts_server.py`
+  - `push_server.py`
+  - `market_server.py` (free-plan local fallback)
 
 ## Polygon Free Plan Constraints
 
