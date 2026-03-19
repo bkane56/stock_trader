@@ -18,6 +18,12 @@ def test_health_endpoint() -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_health_endpoint_includes_cors_header_for_ui_origin() -> None:
+    response = client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
 def test_health_details_endpoint() -> None:
     response = client.get("/health/details")
     assert response.status_code == 200

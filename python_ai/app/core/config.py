@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Stock Trader AI Service"
     APP_ENV: str = "development"
     APP_LOG_LEVEL: str = "INFO"
+    CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     PIPELINE_INTERVAL_MINUTES: int = 60
     MORNING_BRIEFING_MIN_CASH: float = 1000.0
     MORNING_BRIEFING_DEFAULT_HOLDINGS: str = "SPY,QQQ,AAPL"
@@ -72,6 +73,13 @@ class Settings(BaseSettings):
     def resolved_research_min_buy_confidence(self) -> float:
         # Clamp to [0.0, 1.0] to keep validation predictable.
         return max(0.0, min(1.0, float(self.RESEARCH_MIN_BUY_CONFIDENCE)))
+
+    def resolved_cors_allow_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.CORS_ALLOW_ORIGINS.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache(maxsize=1)

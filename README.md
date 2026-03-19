@@ -14,7 +14,7 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 
 
 1. Install dependencies:
-   `npm install`
+   `yarn install`
 2. Copy [.env.example](.env.example) to `.env.local` and add your keys:
    - `AI_PROVIDER` (`openai`)
    - `AI_MODEL` (`gpt-4.2`)
@@ -25,7 +25,7 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
    - `PUSHOVER_TOKEN`
    - `PUSHOVER_URL`
 3. Run the app:
-   `npm run dev`
+   `yarn run dev`
 
 ## AI Service (Python 3.12+)
 
