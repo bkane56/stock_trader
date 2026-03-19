@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { lazy, Suspense } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
   NavLink,
@@ -27,6 +27,7 @@ import { MobileNav } from "./components/MobileNav";
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
+import { fetchLatestMorningBriefing } from "./services/briefings";
 
 const TradeModal = lazy(() =>
   import("./components/TradeModal").then((m) => ({ default: m.TradeModal }))
@@ -51,6 +52,34 @@ export default function App() {
   const totalValue = holdings.reduce((sum, h) => sum + h.totalValue, 0);
   const location = useLocation();
   const navigate = useNavigate();
+  const [morningBriefing, setMorningBriefing] = useState(null);
+  const [isBriefingLoading, setIsBriefingLoading] = useState(true);
+  const [briefingError, setBriefingError] = useState("");
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsBriefingLoading(true);
+    fetchLatestMorningBriefing()
+      .then((payload) => {
+        if (isCancelled) return;
+        setMorningBriefing(payload);
+        setBriefingError("");
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setBriefingError(
+          "Morning briefing unavailable. Showing local holdings data only.",
+        );
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setIsBriefingLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   const openTradeModal = (holding) => {
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
@@ -167,6 +196,12 @@ export default function App() {
                   showAllTransactions={showAllTransactions}
                   toggleShowAllTransactions={toggleShowAllTransactions}
                   goToStrategy={() => navigate("/strategy")}
+                  holdings={holdings}
+                  cash={cash}
+                  totalValue={totalValue}
+                  morningBriefing={morningBriefing}
+                  isBriefingLoading={isBriefingLoading}
+                  briefingError={briefingError}
                 />
               }
             />
@@ -179,6 +214,7 @@ export default function App() {
                   totalValue={totalValue}
                   openTradeModal={openTradeModal}
                   openAddPurchaseModal={openAddPurchaseModal}
+                  morningBriefing={morningBriefing}
                 />
               }
             />

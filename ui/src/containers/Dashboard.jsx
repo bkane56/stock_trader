@@ -24,10 +24,27 @@ export function Dashboard({
   showAllTransactions,
   toggleShowAllTransactions,
   goToStrategy,
+  holdings,
+  cash,
+  totalValue,
+  morningBriefing,
+  isBriefingLoading,
+  briefingError,
 }) {
   const visibleTransactions = showAllTransactions
     ? transactions
     : transactions.slice(0, 3);
+  const investedAmount = Math.max(0, totalValue - cash);
+  const deploymentPct =
+    totalValue > 0 ? Math.min(100, (investedAmount / totalValue) * 100) : 0;
+  const topActions = (morningBriefing?.holdings_actions || []).slice(0, 3);
+  const topDeployIdeas = (morningBriefing?.cash_deployment_options || []).slice(
+    0,
+    3,
+  );
+  const generatedAt = morningBriefing?.generated_at
+    ? new Date(morningBriefing.generated_at).toLocaleString()
+    : "";
 
   return (
     <motion.div
@@ -63,11 +80,14 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $124,500.00
+              $
+              {totalValue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+              })}
             </h3>
             <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
               <ArrowUpRight size={16} />
-              +12.5% YoY
+              {holdings.length} active positions
             </p>
           </div>
         </GlassCard>
@@ -83,10 +103,13 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $98,000.00
+              $
+              {investedAmount.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+              })}
             </h3>
             <p className="text-sm font-bold text-slate-400">
-              78.7% Deployment
+              {deploymentPct.toFixed(1)}% Deployment
             </p>
           </div>
         </GlassCard>
@@ -102,7 +125,10 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $26,500.00
+              $
+              {cash.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+              })}
             </h3>
             <p className="text-sm font-bold text-slate-400">
               Ready for deployment
@@ -177,34 +203,91 @@ export function Dashboard({
           </div>
         </GlassCard>
 
-        {/* AI Insights */}
+        {/* Morning Briefing */}
         <GlassCard className="p-8">
           <h2 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3">
             <Zap className="text-teal-600" fill="currentColor" size={24} />
-            AI Insights
+            Morning Briefing
           </h2>
           <div className="space-y-6">
-            <div className="p-5 rounded-2xl bg-teal-50 border border-teal-100 group cursor-pointer hover:bg-teal-100/50 transition-colors">
-              <p className="text-sm font-black text-teal-900 mb-1">
-                New Opportunity
-              </p>
-              <p className="text-xs font-medium text-teal-700 leading-relaxed">
-                Sustainable energy stocks showing high momentum in Q1 2026.
-                Consider allocating 5% cash.
-              </p>
-            </div>
-            <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 group cursor-pointer hover:bg-blue-100/50 transition-colors">
-              <p className="text-sm font-black text-blue-900 mb-1">
-                Rebalance Alert
-              </p>
-              <p className="text-xs font-medium text-blue-700 leading-relaxed">
-                Volatility in tech sector detected. Portfolio rebalancing
-                scheduled for next trading session.
-              </p>
-            </div>
-            <button className="w-full py-4 mt-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 border-2 border-dashed border-slate-200 rounded-2xl hover:border-slate-300 transition-all">
-              View All Reports
-            </button>
+            {isBriefingLoading ? (
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                <p className="text-xs font-medium text-slate-600">
+                  Loading latest morning briefing...
+                </p>
+              </div>
+            ) : null}
+
+            {briefingError ? (
+              <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100">
+                <p className="text-xs font-medium text-amber-700">
+                  {briefingError}
+                </p>
+              </div>
+            ) : null}
+
+            {morningBriefing ? (
+              <>
+                <div className="p-5 rounded-2xl bg-teal-50 border border-teal-100">
+                  <p className="text-sm font-black text-teal-900 mb-1">
+                    Market Context
+                  </p>
+                  <p className="text-xs font-medium text-teal-700 leading-relaxed">
+                    {morningBriefing.macro_news_summary}
+                  </p>
+                  {generatedAt ? (
+                    <p className="text-[10px] mt-2 font-bold text-teal-700 uppercase tracking-widest">
+                      Generated {generatedAt}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100">
+                  <p className="text-sm font-black text-blue-900 mb-2">
+                    Top Holding Actions
+                  </p>
+                  <div className="space-y-2">
+                    {topActions.length ? (
+                      topActions.map((item) => (
+                        <p
+                          key={`${item.symbol}-${item.action}`}
+                          className="text-xs font-medium text-blue-700 leading-relaxed"
+                        >
+                          {item.symbol}: {item.action.toUpperCase()} (
+                          {Math.round(item.confidence * 100)}%)
+                        </p>
+                      ))
+                    ) : (
+                      <p className="text-xs font-medium text-blue-700 leading-relaxed">
+                        No holding action signals available.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                  <p className="text-sm font-black text-slate-900 mb-2">
+                    Cash Deployment Ideas
+                  </p>
+                  <div className="space-y-2">
+                    {topDeployIdeas.length ? (
+                      topDeployIdeas.map((item) => (
+                        <p
+                          key={`${item.symbol}-${item.entry_style}`}
+                          className="text-xs font-medium text-slate-600 leading-relaxed"
+                        >
+                          {item.symbol} ({item.entry_style}) - {item.thesis}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                        No deploy-cash candidates for current conditions.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : null}
           </div>
         </GlassCard>
       </div>

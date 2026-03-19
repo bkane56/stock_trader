@@ -10,7 +10,11 @@ export function Portfolio({
   totalValue,
   openTradeModal,
   openAddPurchaseModal,
+  morningBriefing,
 }) {
+  const actionsBySymbol = new Map(
+    (morningBriefing?.holdings_actions || []).map((item) => [item.symbol, item]),
+  );
   return (
     <motion.div
       key="portfolio"
@@ -69,53 +73,61 @@ export function Portfolio({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100">
-              {holdings.map((holding) => (
-                <tr
-                  key={holding.symbol}
-                  className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                  onClick={() => openTradeModal(holding)}
-                >
-                  <td className="px-8 py-6 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-12 w-12 bg-teal-50 flex items-center justify-center rounded-2xl text-teal-600 font-black text-sm group-hover:bg-white transition-colors">
-                        {holding.symbol}
-                      </div>
-                      <div className="ml-5">
-                        <div className="text-sm font-black text-slate-900">
-                          {holding.name}
+              {holdings.map((holding) => {
+                const actionSignal = actionsBySymbol.get(holding.symbol);
+                return (
+                  <tr
+                    key={holding.symbol}
+                    className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                    onClick={() => openTradeModal(holding)}
+                  >
+                    <td className="px-8 py-6 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12 bg-teal-50 flex items-center justify-center rounded-2xl text-teal-600 font-black text-sm group-hover:bg-white transition-colors">
+                          {holding.symbol}
                         </div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                          {holding.sector}
+                        <div className="ml-5">
+                          <div className="text-sm font-black text-slate-900">
+                            {holding.name}
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                            {holding.sector}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
-                    {holding.shares.toFixed(2)}
-                  </td>
-                  <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
-                    ${holding.price.toFixed(2)}
-                  </td>
-                  <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-black text-slate-900">
-                    $
-                    {holding.totalValue.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
-                  </td>
-                  <td className="px-8 py-6">
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 group-hover:bg-white transition-colors">
-                      <div className="mb-2">
-                        <Badge variant="info">
-                          {holding.analysis.tag.toUpperCase()}
-                        </Badge>
+                    </td>
+                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
+                      {holding.shares.toFixed(2)}
+                    </td>
+                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
+                      ${holding.price.toFixed(2)}
+                    </td>
+                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-black text-slate-900">
+                      $
+                      {holding.totalValue.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 group-hover:bg-white transition-colors">
+                        <div className="mb-2 flex items-center gap-2">
+                          <Badge variant="info">
+                            {holding.analysis.tag.toUpperCase()}
+                          </Badge>
+                          {actionSignal ? (
+                            <Badge variant="warning">
+                              {actionSignal.action.toUpperCase()}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                          {actionSignal ? actionSignal.reason : holding.analysis.text}
+                        </p>
                       </div>
-                      <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                        {holding.analysis.text}
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot className="bg-slate-50/50">
               <tr>
