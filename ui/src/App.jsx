@@ -112,7 +112,7 @@ export default function App() {
   const [morningBriefing, setMorningBriefing] = useState(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState("");
-  const strategySaveTimer = useRef(null);
+  const [isApplyingStrategy, setIsApplyingStrategy] = useState(false);
   const portfolioBootstrapRef = useRef(new Set());
   const portfolioSeedRef = useRef(new Set());
   const portfolioOwnerLinkRef = useRef(new Set());
@@ -172,14 +172,6 @@ export default function App() {
   }, [portfolioId, portfolioQuery?.data, signedInUser]);
 
   useEffect(() => {
-    return () => {
-      if (strategySaveTimer.current) {
-        clearTimeout(strategySaveTimer.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     let isCancelled = false;
     if (isInstantDbEnabled && !isHydrated) {
       return () => {
@@ -205,7 +197,10 @@ export default function App() {
     setIsBriefingLoading(true);
     generateMorningBriefing({
       holdings: symbols,
+      holdingsSnapshot: holdings,
       cashAvailable: cash,
+      strategyGrowthPct: strategyGrowthPct,
+      strategyFixedPct: strategyFixedPct,
       persist: false,
       focus: "portfolio holdings actions and cash deployment options",
     })
@@ -238,7 +233,15 @@ export default function App() {
     return () => {
       isCancelled = true;
     };
-  }, [cash, holdings, isHydrated, isInstantDbEnabled, morningBriefing]);
+  }, [
+    cash,
+    holdings,
+    isHydrated,
+    isInstantDbEnabled,
+    morningBriefing,
+    strategyGrowthPct,
+    strategyFixedPct,
+  ]);
 
   useEffect(() => {
     if (
@@ -412,27 +415,29 @@ export default function App() {
     dispatch({ type: "SET_CASH_MODAL_OPEN", payload: true });
   };
   const closeCashModal = () => dispatch({ type: "SET_CASH_MODAL_OPEN", payload: false });
-  const setStrategySplit = (nextGrowthPct) => {
+  const applyStrategySplit = async (nextGrowthPct) => {
+    const previousGrowthPct = strategyGrowthPct;
     dispatch({ type: "SET_STRATEGY_SPLIT", payload: nextGrowthPct });
-    if (!isInstantDbEnabled || !portfolioId) return;
-    if (strategySaveTimer.current) {
-      clearTimeout(strategySaveTimer.current);
+    if (!isInstantDbEnabled || !portfolioId) return true;
+
+    setIsApplyingStrategy(true);
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    try {
+      await persistStrategySplit(portfolioId, nextGrowthPct);
+      dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      return true;
+    } catch (error) {
+      dispatch({ type: "SET_STRATEGY_SPLIT", payload: previousGrowthPct });
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload:
+          error?.message || "Failed to persist strategy split to InstantDB.",
+      });
+      return false;
+    } finally {
+      setIsApplyingStrategy(false);
+      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
     }
-    strategySaveTimer.current = setTimeout(async () => {
-      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
-      try {
-        await persistStrategySplit(portfolioId, nextGrowthPct);
-        dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
-      } catch (error) {
-        dispatch({
-          type: "SET_PORTFOLIO_SYNC_ERROR",
-          payload:
-            error?.message || "Failed to persist strategy split to InstantDB.",
-        });
-      } finally {
-        dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
-      }
-    }, 250);
   };
   const toggleShowAllTransactions = () =>
     dispatch({ type: "TOGGLE_SHOW_ALL_TRANSACTIONS" });
@@ -450,7 +455,8 @@ export default function App() {
       return;
     }
 
-    const symbol = String(recommendation?.symbol || "").trim().toUpperCase();
+    const buyRecommendation = recommendation?.buy || recommendation;
+    const symbol = String(buyRecommendation?.symbol || "").trim().toUpperCase();
     if (!symbol) {
       dispatch({
         type: "SET_RECOMMENDATION_ORDER_STATUS",
@@ -463,26 +469,77 @@ export default function App() {
       return;
     }
 
-    const suggestedAmount = Number(recommendation?.suggested_amount) || 0;
-    const budget = Math.min(Math.max(0, suggestedAmount), cash);
-    if (budget <= 0) {
-      dispatch({
-        type: "SET_RECOMMENDATION_ORDER_STATUS",
-        payload: { key, status: "failed" },
-      });
-      dispatch({
-        type: "SET_PORTFOLIO_SYNC_ERROR",
-        payload: `No cash available to place ${symbol} recommendation order.`,
-      });
-      return;
-    }
-
+    const sellLeg = recommendation?.sell_leg || null;
+    const suggestedAmount = Number(buyRecommendation?.suggested_amount) || 0;
+    const resolveQuote = async (quoteSymbol) => {
+      const normalized = String(quoteSymbol || "").trim().toUpperCase();
+      try {
+        return await fetchSymbolQuote(normalized);
+      } catch (_quoteError) {
+        const holdingMatch = (holdings || []).find(
+          (holding) => String(holding?.symbol || "").toUpperCase() === normalized
+        );
+        if (holdingMatch && Number(holdingMatch.price) > 0) {
+          return {
+            symbol: normalized,
+            name: holdingMatch.name || normalized,
+            price: Number(holdingMatch.price),
+            previous_close: Number(holdingMatch.price),
+          };
+        }
+        throw _quoteError;
+      }
+    };
     try {
       dispatch({
         type: "SET_RECOMMENDATION_ORDER_STATUS",
         payload: { key, status: "submitting" },
       });
-      const quote = await fetchSymbolQuote(symbol);
+      let additionalFundsFromSell = 0;
+      if (sellLeg) {
+        const sellSymbol = String(sellLeg.symbol || "").trim().toUpperCase();
+        const sellShares = Number(sellLeg.shares) || 0;
+        if (!sellSymbol || sellShares <= 0) {
+          throw new Error("Invalid sell leg in recommendation.");
+        }
+        const sellQuote = await resolveQuote(sellSymbol);
+        const sellMarketPrice = Number(sellQuote?.price) || 0;
+        const sellPreviousClose = Number(sellQuote?.previous_close) || 0;
+        const isWeekend = [0, 6].includes(new Date().getDay());
+        const sellExecutionPrice = isWeekend
+          ? sellPreviousClose || sellMarketPrice
+          : sellMarketPrice || sellPreviousClose;
+        if (!sellExecutionPrice || sellExecutionPrice <= 0) {
+          throw new Error(`Price unavailable for ${sellSymbol}.`);
+        }
+        const sellHolding = (holdings || []).find(
+          (holding) => String(holding?.symbol || "").toUpperCase() === sellSymbol
+        );
+        const sellPlaced = await handleExecuteTrade({
+          type: "SELL_FROM_HOLDING",
+          payload: {
+            symbol: sellSymbol,
+            name: String(sellHolding?.name || sellQuote?.name || sellSymbol),
+            sector: String(sellHolding?.sector || "Other"),
+            price: sellExecutionPrice,
+            shares: sellShares,
+          },
+        });
+        if (!sellPlaced) {
+          throw new Error(`Unable to execute sell leg for ${sellSymbol}.`);
+        }
+        additionalFundsFromSell = sellShares * sellExecutionPrice;
+      }
+      const reserveFloor = Math.max(0, Number(totalValue) * 0.1);
+      const spendableCash = Math.max(0, cash - reserveFloor);
+      const budget = Math.min(
+        Math.max(0, suggestedAmount),
+        spendableCash + additionalFundsFromSell,
+      );
+      if (budget <= 0) {
+        throw new Error(`No cash available to place ${symbol} recommendation order.`);
+      }
+      const quote = await resolveQuote(symbol);
       const marketPrice = Number(quote?.price) || 0;
       const previousClose = Number(quote?.previous_close) || 0;
       const isWeekend = [0, 6].includes(new Date().getDay());
@@ -505,9 +562,10 @@ export default function App() {
         payload: {
           symbol,
           name: String(quote?.name || symbol),
-          sector: String(recommendation?.sector || "Other"),
+          sector: String(buyRecommendation?.sector || "Other"),
           price: executionPrice,
           shares,
+          enforceReserve: false,
         },
       });
       dispatch({
@@ -560,6 +618,17 @@ export default function App() {
 
     const { positions } = pickPortfolioData(portfolioQuery.data, portfolioRecord.id);
     const mode = action.type === "BUY_ADD_HOLDING" ? "buy" : "sell";
+    if (mode === "buy" && action?.payload?.enforceReserve !== false) {
+      const reserveFloor = Math.max(0, Number(totalValue) * 0.1);
+      const buyCost = (Number(action?.payload?.price) || 0) * (Number(action?.payload?.shares) || 0);
+      if (buyCost > Math.max(0, Number(cash) - reserveFloor)) {
+        dispatch({
+          type: "SET_PORTFOLIO_SYNC_ERROR",
+          payload: "Order blocked: this buy would push cash below your reserve target.",
+        });
+        return false;
+      }
+    }
     dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
     try {
       await executeTrade({
@@ -812,7 +881,8 @@ export default function App() {
                 >
                   <StrategyBuilder
                     strategySplit={strategyGrowthPct}
-                    setStrategySplit={setStrategySplit}
+                    onApplyStrategy={applyStrategySplit}
+                    isApplyingStrategy={isApplyingStrategy}
                   />
                 </Suspense>
               }

@@ -2,7 +2,7 @@ from typing import Any
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.config import get_settings
 from app.pipeline.service import (
@@ -23,6 +23,7 @@ from app.schemas.recommendations import (
 )
 
 router = APIRouter()
+_QUOTE_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _parse_symbols_csv(raw: str) -> list[str]:
@@ -33,39 +34,74 @@ def _fetch_quote(symbol: str) -> dict[str, Any]:
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol:
         raise ValueError("symbol is required")
+    settings = get_settings()
+    polygon_api_key = settings.POLYGON_API_KEY.strip()
+    if not polygon_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="POLYGON_API_KEY is missing for quote retrieval.",
+        )
 
-    response = httpx.get(
-        "https://query1.finance.yahoo.com/v7/finance/quote",
-        params={"symbols": normalized_symbol},
-        timeout=10.0,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    quote_response = payload.get("quoteResponse", {})
-    records = quote_response.get("result", [])
-    if not isinstance(records, list) or not records:
-        raise ValueError(f"No quote data returned for {normalized_symbol}")
+    try:
+        response = httpx.get(
+            f"https://api.polygon.io/v2/aggs/ticker/{normalized_symbol}/prev",
+            params={"adjusted": "true", "apiKey": polygon_api_key},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 429:
+            cached = _QUOTE_CACHE.get(normalized_symbol)
+            if cached:
+                return cached
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"Polygon rate-limited request for {normalized_symbol}. "
+                    "Please retry in a few seconds."
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Polygon returned an error for {normalized_symbol}.",
+        ) from exc
+    except httpx.HTTPError as exc:
+        cached = _QUOTE_CACHE.get(normalized_symbol)
+        if cached:
+            return cached
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Unable to reach Polygon for {normalized_symbol}.",
+        ) from exc
 
-    record = records[0]
-    if not isinstance(record, dict):
-        raise ValueError(f"Invalid quote payload for {normalized_symbol}")
+    response_payload = response.json()
+    results = response_payload.get("results", [])
+    if not isinstance(results, list) or not results:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Polygon did not return previous-close data for {normalized_symbol}.",
+        )
 
-    price = record.get("regularMarketPrice")
-    if not isinstance(price, (float, int)):
-        raise ValueError(f"Price unavailable for {normalized_symbol}")
+    previous = results[0]
+    close = previous.get("c")
+    if not isinstance(close, (float, int)):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Polygon close price unavailable for {normalized_symbol}.",
+        )
 
-    previous_close = record.get("regularMarketPreviousClose")
-    previous_close_value = (
-        float(previous_close) if isinstance(previous_close, (float, int)) else None
-    )
-    return {
-        "symbol": str(record.get("symbol", normalized_symbol)).upper(),
-        "name": str(record.get("longName") or record.get("shortName") or normalized_symbol),
-        "price": float(price),
-        "previous_close": previous_close_value,
-        "currency": str(record.get("currency") or "USD"),
-        "source": "yahoo_finance_quote",
+    payload = {
+        "symbol": normalized_symbol,
+        "name": normalized_symbol,
+        # Intentional: for paper fills we want last available close.
+        "price": float(close),
+        "previous_close": float(close),
+        "currency": "USD",
+        "source": "polygon_prev_close",
     }
+    _QUOTE_CACHE[normalized_symbol] = payload
+    return payload
 
 
 @router.get("/health")
@@ -119,7 +155,10 @@ def get_latest_morning_briefing() -> MorningBriefingResponse:
         return latest
     return generate_morning_briefing(
         holdings=default_symbols,
+        holdings_snapshot=[],
         cash_available=max(0.0, settings.MORNING_BRIEFING_DEFAULT_CASH),
+        strategy_growth_pct=60.0,
+        strategy_fixed_pct=40.0,
         focus="general stock market and world news",
     )
 
@@ -131,11 +170,17 @@ def generate_morning_briefing_endpoint(
     if payload.persist:
         return generate_and_persist_morning_briefing(
             holdings=payload.holdings,
+            holdings_snapshot=payload.holdings_snapshot,
             cash_available=payload.cash_available,
+            strategy_growth_pct=payload.strategy_growth_pct,
+            strategy_fixed_pct=payload.strategy_fixed_pct,
             focus=payload.focus,
         )
     return generate_morning_briefing(
         holdings=payload.holdings,
+        holdings_snapshot=payload.holdings_snapshot,
         cash_available=payload.cash_available,
+        strategy_growth_pct=payload.strategy_growth_pct,
+        strategy_fixed_pct=payload.strategy_fixed_pct,
         focus=payload.focus,
     )

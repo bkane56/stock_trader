@@ -4,6 +4,10 @@ import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
 import { getTradingMode } from "../lib/tradingModes";
+import {
+  calculateHoldingInvestedAmount,
+  calculateHoldingMarketValue,
+} from "../lib/portfolioMetrics";
 
 export function Portfolio({
   holdings,
@@ -15,7 +19,27 @@ export function Portfolio({
   morningBriefing,
   tradingMode,
 }) {
+  const formatCurrency = (value) =>
+    Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   const activeTradingMode = getTradingMode(tradingMode);
+  const activeHoldings = (holdings || []).filter(
+    (holding) =>
+      String(holding?.symbol || "").trim().length > 0 && (Number(holding?.shares) || 0) > 0
+  );
+  const investedCostBasis = activeHoldings.reduce(
+    (sum, holding) => sum + calculateHoldingInvestedAmount(holding),
+    0
+  );
+  const positionsMarketValue = activeHoldings.reduce(
+    (sum, holding) => sum + calculateHoldingMarketValue(holding),
+    0
+  );
+  const unrealizedPnl = positionsMarketValue - investedCostBasis;
+  const deploymentPct =
+    totalValue > 0 ? Math.min(100, (positionsMarketValue / totalValue) * 100) : 0;
   const actionsBySymbol = new Map(
     (morningBriefing?.holdings_actions || []).map((item) => [item.symbol, item]),
   );
@@ -51,7 +75,7 @@ export function Portfolio({
             </div>
           </div>
           <h3 className="text-3xl font-black text-slate-900 tracking-tighter">
-            ${cash.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            ${formatCurrency(cash)}
           </h3>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
             Buying Power Ready for Deployment
@@ -71,6 +95,28 @@ export function Portfolio({
               <ArrowDownCircle size={14} />
               Withdraw Cash
             </button>
+          </div>
+          <div className="mt-5 space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              Invested Cost Basis
+            </p>
+            <p className="text-sm font-black text-slate-900">
+              ${formatCurrency(investedCostBasis)}
+            </p>
+            <p className="text-[11px] font-bold text-slate-600">
+              Current Market Value: ${formatCurrency(positionsMarketValue)}
+            </p>
+            <p
+              className={`text-[11px] font-bold ${
+                unrealizedPnl >= 0 ? "text-emerald-600" : "text-rose-600"
+              }`}
+            >
+              Unrealized P/L: {unrealizedPnl >= 0 ? "+" : "-"}$
+              {formatCurrency(Math.abs(unrealizedPnl))}
+            </p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              {deploymentPct.toFixed(1)}% currently deployed
+            </p>
           </div>
         </GlassCard>
       </header>
@@ -128,10 +174,7 @@ export function Portfolio({
                       ${holding.price.toFixed(2)}
                     </td>
                     <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-black text-slate-900">
-                      $
-                      {holding.totalValue.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                      })}
+                      ${formatCurrency(holding.totalValue)}
                     </td>
                     <td className="px-8 py-6">
                       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 group-hover:bg-white transition-colors">
@@ -163,10 +206,7 @@ export function Portfolio({
                   Total Portfolio Value
                 </td>
                 <td className="px-8 py-6 text-right font-black text-slate-900 text-2xl tracking-tighter">
-                  $
-                  {totalValue.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
+                  ${formatCurrency(totalValue)}
                 </td>
                 <td className="px-8 py-6"></td>
               </tr>

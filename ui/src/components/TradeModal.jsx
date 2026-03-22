@@ -15,6 +15,11 @@ export const TradeModal = ({
   tradingMode,
   onExecuteTrade,
 }) => {
+  const formatCurrency = (value) =>
+    Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   const manualTradingDisabled = tradingMode === "autonomous_agent";
   const isAddPurchaseFlow = !holding;
   const [mode, setMode] = useState("buy");
@@ -82,8 +87,14 @@ export const TradeModal = ({
     holdings.find((portfolioStock) => portfolioStock.symbol === displayStock?.symbol)
       ?.shares ?? 0;
   const estimatedTotal = (Number(shares) || 0) * price;
+  const holdingsMarketValue = (holdings || []).reduce(
+    (sum, item) => sum + (Number(item?.totalValue) || Number(item?.shares) * Number(item?.price) || 0),
+    0
+  );
+  const reserveFloor = Math.max(0, (Number(cash) + holdingsMarketValue) * 0.1);
+  const spendableCash = Math.max(0, Number(cash) - reserveFloor);
   const invalidShares = !Number(shares) || Number(shares) <= 0;
-  const insufficientCash = mode === "buy" && estimatedTotal > cash;
+  const insufficientCash = mode === "buy" && estimatedTotal > spendableCash;
   const insufficientShares = mode === "sell" && Number(shares) > owned;
   const cannotSellSelectedStock = mode === "sell" && owned <= 0;
   const missingPrice = !Number(price) || Number(price) <= 0;
@@ -160,16 +171,17 @@ export const TradeModal = ({
     if (!numShares || numShares <= 0 || !displayStock) return;
 
     if (mode === "buy") {
-      const cost = displayStock.price * numShares;
-      if (cash < cost) return;
+      const cost = price * numShares;
+      if (spendableCash < cost) return;
       onExecuteTrade({
         type: "BUY_ADD_HOLDING",
         payload: {
           symbol: displayStock.symbol,
           name: displayStock.name,
           sector: displayStock.sector,
-          price: displayStock.price,
+          price,
           shares: numShares,
+          enforceReserve: true,
         },
       });
     } else {
@@ -374,19 +386,14 @@ export const TradeModal = ({
                     </span>
                     <span className="font-bold text-slate-900 ml-2">
                       {mode === "buy"
-                        ? `$${cash.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                          })}`
+                        ? `$${formatCurrency(spendableCash)}`
                         : `${owned.toFixed(2)} ${displayStock.symbol}`}
                     </span>
                   </div>
                   <div className="text-right">
                     <span className="text-slate-500 font-medium">Est. Total:</span>
                     <span className="font-black text-slate-900 ml-2">
-                      $
-                      {estimatedTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                      })}
+                      ${formatCurrency(estimatedTotal)}
                     </span>
                   </div>
                 </div>
@@ -398,7 +405,7 @@ export const TradeModal = ({
                 )}
                 {mode === "buy" && insufficientCash && (
                   <p className="text-sm font-medium text-rose-600">
-                    This order exceeds your available cash.
+                    This order would breach your reserve floor.
                   </p>
                 )}
                 {mode === "buy" && missingPrice && (

@@ -15,7 +15,10 @@ export async function fetchLatestMorningBriefing() {
 
 export async function generateMorningBriefing({
   holdings = [],
+  holdingsSnapshot = [],
   cashAvailable = 0,
+  strategyGrowthPct = 60,
+  strategyFixedPct = 40,
   focus = "",
   persist = false,
 } = {}) {
@@ -33,7 +36,16 @@ export async function generateMorningBriefing({
     },
     body: JSON.stringify({
       holdings: normalizedHoldings,
+      holdings_snapshot: (holdingsSnapshot || []).map((item) => ({
+        symbol: String(item?.symbol || "").trim().toUpperCase(),
+        name: String(item?.name || ""),
+        sector: String(item?.sector || ""),
+        shares: Math.max(0, Number(item?.shares) || 0),
+        price: Math.max(0, Number(item?.price) || 0),
+      })),
       cash_available: Math.max(0, Number(cashAvailable) || 0),
+      strategy_growth_pct: Math.max(0, Math.min(100, Number(strategyGrowthPct) || 0)),
+      strategy_fixed_pct: Math.max(0, Math.min(100, Number(strategyFixedPct) || 0)),
       focus: String(focus || ""),
       persist: Boolean(persist),
     }),

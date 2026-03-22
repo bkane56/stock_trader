@@ -19,13 +19,16 @@ from app.core.config import get_settings
 from app.schemas.recommendations import (
     CashDeploymentOption,
     DoNotBuyIdea,
+    ExecutionRecommendation,
     HoldingResearch,
     HoldingAction,
+    HoldingSnapshot,
     MarketResearchResponse,
     MorningBriefingResponse,
     Recommendation,
     RiskFlag,
     SectorResearch,
+    SellLeg,
     StockIdea,
 )
 
@@ -158,6 +161,29 @@ def _default_morning_focus(raw_focus: str) -> str:
     return "general stock market news, macroeconomy, and world news"
 
 
+def _clamp_strategy_growth(strategy_growth_pct: float) -> float:
+    return max(0.0, min(100.0, float(strategy_growth_pct)))
+
+
+def _strategy_context_text(strategy_growth_pct: float, strategy_fixed_pct: float) -> str:
+    growth = round(_clamp_strategy_growth(strategy_growth_pct), 1)
+    fixed_income = round(max(0.0, min(100.0, float(strategy_fixed_pct))), 1)
+    if growth <= 20:
+        posture = "conservative"
+    elif growth <= 40:
+        posture = "moderate-conservative"
+    elif growth <= 60:
+        posture = "moderate"
+    elif growth <= 80:
+        posture = "moderate-aggressive"
+    else:
+        posture = "aggressive"
+    return (
+        f"Portfolio strategy target: {growth:.1f}% growth / {fixed_income:.1f}% fixed income "
+        f"({posture} risk posture)."
+    )
+
+
 def _build_risk_flags(
     research: MarketResearchResponse,
 ) -> list[RiskFlag]:
@@ -285,6 +311,8 @@ def _build_research_user_prompt(
     holdings: list[str],
     focus: str,
     min_buy_confidence: float,
+    strategy_growth_pct: float,
+    strategy_fixed_pct: float,
 ) -> str:
     holdings_text = ", ".join(holdings) if holdings else "(none)"
     focus_text = focus.strip() or "broad market opportunities"
@@ -297,7 +325,13 @@ def _build_research_user_prompt(
         "Cover all of the following evidence areas before deciding: "
         "macro regime, sector momentum/rotation, and company-specific catalysts.\n"
         "For each current holding, include at least one stock-specific evidence point.\n"
+        "For top_3_buys, prioritize symbols that are not already in current holdings. "
+        "Only include an existing holding if no non-holding idea meets the minimum "
+        "confidence threshold.\n"
         f"Minimum confidence for top_3_buys is {min_buy_confidence:.2f}.\n"
+        f"{_strategy_context_text(strategy_growth_pct, strategy_fixed_pct)}\n"
+        "Adjust recommendations to respect this strategy tilt and avoid over-concentrating "
+        "new cash deployment into a single symbol when alternatives are similarly compelling.\n"
         f"Current holdings: {holdings_text}\n"
         f"Research focus: {focus_text}\n"
         "Return STRICT JSON with this exact top-level shape and no markdown:\n"
@@ -321,6 +355,7 @@ def _build_cash_deployment_options(
     *,
     candidates: list[StockIdea],
     deployable_cash_budget: float,
+    strategy_growth_pct: float,
 ) -> list[CashDeploymentOption]:
     if deployable_cash_budget <= 0:
         return []
@@ -338,6 +373,47 @@ def _build_cash_deployment_options(
         return []
 
     raw_allocations = [safe_budget * (weight / total_weight) for weight in weights]
+
+    growth = _clamp_strategy_growth(strategy_growth_pct)
+    if growth <= 20:
+        max_single_allocation_pct = 0.40
+    elif growth <= 40:
+        max_single_allocation_pct = 0.50
+    elif growth <= 60:
+        max_single_allocation_pct = 0.60
+    elif growth <= 80:
+        max_single_allocation_pct = 0.70
+    else:
+        max_single_allocation_pct = 0.80
+    max_single_allocation_amount = safe_budget * max_single_allocation_pct
+
+    # Apply concentration cap only when there is a meaningful choice set.
+    if len(raw_allocations) > 1:
+        capped = [min(amount, max_single_allocation_amount) for amount in raw_allocations]
+        remaining = safe_budget - sum(capped)
+        if remaining > 0:
+            while remaining > 1e-9:
+                capacity_indices = [
+                    idx
+                    for idx, amount in enumerate(capped)
+                    if amount < max_single_allocation_amount - 1e-9
+                ]
+                if not capacity_indices:
+                    break
+                total_capacity_weight = sum(weights[idx] for idx in capacity_indices)
+                if total_capacity_weight <= 0:
+                    break
+                distributed = 0.0
+                for idx in capacity_indices:
+                    proportional = remaining * (weights[idx] / total_capacity_weight)
+                    headroom = max_single_allocation_amount - capped[idx]
+                    add_amount = min(headroom, proportional)
+                    capped[idx] += add_amount
+                    distributed += add_amount
+                if distributed <= 1e-9:
+                    break
+                remaining -= distributed
+        raw_allocations = capped
     allocations: list[float] = []
     running_total = 0.0
     for idx, amount in enumerate(raw_allocations):
@@ -371,6 +447,141 @@ def _build_cash_deployment_options(
             )
         )
     return options
+
+
+def _build_execution_recommendations(
+    *,
+    holdings_actions: list[HoldingAction],
+    cash_deployment_options: list[CashDeploymentOption],
+    holdings_snapshot: list[HoldingSnapshot],
+    deployable_cash_budget: float,
+) -> list[ExecutionRecommendation]:
+    if not cash_deployment_options:
+        return []
+
+    holdings_by_symbol = {
+        row.symbol.upper(): row
+        for row in holdings_snapshot
+        if row.symbol and row.shares > 0 and row.price > 0
+    }
+    action_by_symbol = {row.symbol.upper(): row for row in holdings_actions}
+
+    sell_candidates: list[dict[str, Any]] = []
+    for symbol, snapshot in holdings_by_symbol.items():
+        action = action_by_symbol.get(symbol)
+        if action is None:
+            continue
+        # Prioritize explicit sell/trim signals, then allow weaker names as backup
+        # when cash deployment needs rotation funding.
+        confidence = float(action.confidence)
+        if action.action == "sell":
+            priority = 0
+            max_shares = snapshot.shares
+        elif action.action == "trim":
+            priority = 1
+            max_shares = snapshot.shares * 0.5
+        elif action.action == "watch" and confidence <= 0.55:
+            priority = 2
+            max_shares = snapshot.shares * 0.35
+        elif action.action == "hold" and confidence <= 0.45:
+            priority = 3
+            max_shares = snapshot.shares * 0.25
+        else:
+            continue
+        if max_shares <= 0:
+            continue
+        sell_candidates.append(
+            {
+                "symbol": symbol,
+                "name": snapshot.name,
+                "sector": snapshot.sector,
+                "price": snapshot.price,
+                "remaining_shares": max_shares,
+                "action": action.action,
+                "reason": action.reason,
+                "confidence": confidence,
+                "priority": priority,
+            }
+        )
+
+    sell_candidates.sort(
+        key=lambda row: (
+            int(row["priority"]),
+            -float(row["confidence"]),
+            -float(row["remaining_shares"] * row["price"]),
+        )
+    )
+
+    available_cash = max(0.0, float(deployable_cash_budget))
+    execution_rows: list[ExecutionRecommendation] = []
+    for buy in cash_deployment_options:
+        buy_amount = max(0.0, float(buy.suggested_amount))
+        if buy_amount <= 0:
+            continue
+        key = f"{buy.symbol}:{buy.entry_style}"
+        sell_leg: SellLeg | None = None
+        deficit = max(0.0, buy_amount - available_cash)
+        if deficit > 0:
+            for candidate in sell_candidates:
+                candidate_price = float(candidate["price"])
+                if candidate_price <= 0:
+                    continue
+                shares_needed = min(
+                    float(candidate["remaining_shares"]),
+                    deficit / candidate_price,
+                )
+                shares_needed = round(max(0.0, shares_needed), 4)
+                if shares_needed <= 0:
+                    continue
+                candidate["remaining_shares"] = max(
+                    0.0, float(candidate["remaining_shares"]) - shares_needed
+                )
+                proceeds = shares_needed * candidate_price
+                available_cash += proceeds
+                deficit = max(0.0, buy_amount - available_cash)
+                sell_leg = SellLeg(
+                    symbol=str(candidate["symbol"]),
+                    shares=shares_needed,
+                    estimated_price=candidate_price,
+                    reason=str(candidate["reason"]) or "Fund strong-buy rotation.",
+                )
+                break
+            # If this recommendation needs rotation but no sell leg is available,
+            # skip it so UI only shows actionable sell-then-buy rows.
+            if sell_leg is None:
+                continue
+
+        if available_cash <= 0:
+            continue
+        funded_amount = min(available_cash, buy_amount)
+        if funded_amount <= 0:
+            continue
+        available_cash = max(0.0, available_cash - funded_amount)
+        funded_buy = buy.model_copy(
+            update={
+                "suggested_amount": round(funded_amount, 2),
+                "suggested_allocation_pct": 0.0,
+            }
+        )
+        if sell_leg is not None:
+            summary = (
+                f"Sell {sell_leg.shares:.4f} shares of {sell_leg.symbol}, then buy "
+                f"{funded_buy.symbol} with about ${funded_buy.suggested_amount:,.2f}."
+            )
+        else:
+            summary = (
+                f"Buy {funded_buy.symbol} with about ${funded_buy.suggested_amount:,.2f}."
+            )
+        execution_rows.append(
+            ExecutionRecommendation(
+                key=key,
+                summary=summary,
+                buy=funded_buy,
+                sell_leg=sell_leg,
+                requires_rotation=sell_leg is not None,
+            )
+        )
+    return execution_rows
 
 
 def _extract_market_research_from_model_output(
@@ -500,22 +711,44 @@ def _extract_market_research_from_model_output(
             )
 
     forbidden_symbols = {row.symbol for row in do_not_buy}
-    top_3_buys = [
-        row
-        for row in top_3_buys
-        if row.symbol not in forbidden_symbols and row.confidence >= min_buy_confidence
-    ]
+    holdings_set = set(holdings)
 
-    if not top_3_buys:
+    def _select_buy_candidates(
+        source: list[StockIdea],
+        *,
+        allow_holdings: bool,
+    ) -> list[StockIdea]:
+        selected: list[StockIdea] = []
+        seen: set[str] = set()
+        for row in source:
+            if row.symbol in seen:
+                continue
+            if row.symbol in forbidden_symbols:
+                continue
+            if row.confidence < min_buy_confidence:
+                continue
+            if not allow_holdings and row.symbol in holdings_set:
+                continue
+            seen.add(row.symbol)
+            selected.append(row)
+        return selected
+
+    non_holding_top_buys = _select_buy_candidates(top_3_buys, allow_holdings=False)
+    non_holding_stock_ideas = _select_buy_candidates(stock_ideas, allow_holdings=False)
+    holding_top_buys = _select_buy_candidates(top_3_buys, allow_holdings=True)
+    holding_stock_ideas = _select_buy_candidates(stock_ideas, allow_holdings=True)
+
+    if non_holding_top_buys:
+        top_3_buys = non_holding_top_buys[:3]
+    elif non_holding_stock_ideas:
         top_3_buys = sorted(
-            [
-                row
-                for row in stock_ideas
-                if row.symbol not in forbidden_symbols
-                and row.confidence >= min_buy_confidence
-            ],
-            key=lambda row: row.confidence,
-            reverse=True,
+            non_holding_stock_ideas, key=lambda row: row.confidence, reverse=True
+        )[:3]
+    elif holding_top_buys:
+        top_3_buys = holding_top_buys[:3]
+    else:
+        top_3_buys = sorted(
+            holding_stock_ideas, key=lambda row: row.confidence, reverse=True
         )[:3]
 
     if not raw_macro:
@@ -634,6 +867,8 @@ async def _run_openai_agents_research_async(
     holdings: list[str],
     focus: str,
     min_buy_confidence: float,
+    strategy_growth_pct: float,
+    strategy_fixed_pct: float,
     require_web_search: bool,
 ) -> MarketResearchResponse:
     from agents import Agent, Runner
@@ -677,6 +912,8 @@ async def _run_openai_agents_research_async(
             holdings=holdings,
             focus=focus,
             min_buy_confidence=min_buy_confidence,
+            strategy_growth_pct=strategy_growth_pct,
+            strategy_fixed_pct=strategy_fixed_pct,
         )
         if require_web_search:
             prompt += (
@@ -702,6 +939,8 @@ def _run_openai_agents_research(
     holdings: list[str],
     focus: str,
     min_buy_confidence: float,
+    strategy_growth_pct: float,
+    strategy_fixed_pct: float,
     require_web_search: bool,
 ) -> MarketResearchResponse:
     return _run_async(
@@ -710,6 +949,8 @@ def _run_openai_agents_research(
             holdings=holdings,
             focus=focus,
             min_buy_confidence=min_buy_confidence,
+            strategy_growth_pct=strategy_growth_pct,
+            strategy_fixed_pct=strategy_fixed_pct,
             require_web_search=require_web_search,
         )
     )
@@ -827,7 +1068,12 @@ def generate_initial_recommendations(symbols: list[str]) -> list[Recommendation]
         return _scaffold_recommendations(normalized_symbols, advisor_agent)
 
 
-def generate_market_research(holdings: list[str], focus: str = "") -> MarketResearchResponse:
+def generate_market_research(
+    holdings: list[str],
+    focus: str = "",
+    strategy_growth_pct: float = 60.0,
+    strategy_fixed_pct: float = 40.0,
+) -> MarketResearchResponse:
     settings = get_settings()
     research_agent = ResearchAgent(settings=settings)
     normalized_holdings = _normalize_symbols(holdings)
@@ -836,12 +1082,17 @@ def generate_market_research(holdings: list[str], focus: str = "") -> MarketRese
     api_key = settings.resolved_ai_api_key()
     require_web_search = bool(settings.SERPER_API_KEY.strip())
     logger.info(
-        "Research request provider=%s model=%s holdings=%s focus=%s min_buy_confidence=%.2f",
+        (
+            "Research request provider=%s model=%s holdings=%s focus=%s "
+            "min_buy_confidence=%.2f strategy_growth_pct=%.1f strategy_fixed_pct=%.1f"
+        ),
         provider,
         research_agent.identity.model,
         ",".join(normalized_holdings),
         focus.strip() or "<none>",
         min_buy_confidence,
+        _clamp_strategy_growth(strategy_growth_pct),
+        max(0.0, min(100.0, float(strategy_fixed_pct))),
     )
 
     if provider != "openai":
@@ -891,6 +1142,8 @@ def generate_market_research(holdings: list[str], focus: str = "") -> MarketRese
             holdings=normalized_holdings,
             focus=focus,
             min_buy_confidence=min_buy_confidence,
+            strategy_growth_pct=_clamp_strategy_growth(strategy_growth_pct),
+            strategy_fixed_pct=max(0.0, min(100.0, float(strategy_fixed_pct))),
             require_web_search=require_web_search,
         )
     except asyncio.CancelledError as exc:
@@ -950,13 +1203,23 @@ def generate_market_research(holdings: list[str], focus: str = "") -> MarketRese
 def generate_morning_briefing(
     *,
     holdings: list[str],
+    holdings_snapshot: list[HoldingSnapshot] | None = None,
     cash_available: float,
+    strategy_growth_pct: float = 60.0,
+    strategy_fixed_pct: float = 40.0,
     focus: str = "",
 ) -> MorningBriefingResponse:
     settings = get_settings()
     normalized_holdings = _normalize_symbols(holdings)
     research_focus = _default_morning_focus(focus)
-    research = generate_market_research(holdings=normalized_holdings, focus=research_focus)
+    clamped_growth_pct = _clamp_strategy_growth(strategy_growth_pct)
+    clamped_fixed_pct = max(0.0, min(100.0, float(strategy_fixed_pct)))
+    research = generate_market_research(
+        holdings=normalized_holdings,
+        focus=research_focus,
+        strategy_growth_pct=clamped_growth_pct,
+        strategy_fixed_pct=clamped_fixed_pct,
+    )
 
     holdings_actions = [
         HoldingAction(
@@ -969,13 +1232,32 @@ def generate_morning_briefing(
     ]
 
     safe_cash_available = max(0.0, float(cash_available))
+    holdings_snapshot_value = sum(
+        max(0.0, float(row.shares)) * max(0.0, float(row.price))
+        for row in (holdings_snapshot or [])
+    )
+    total_portfolio_value = safe_cash_available + holdings_snapshot_value
     reserve_ratio = settings.resolved_morning_briefing_cash_reserve_ratio()
-    reserve_cash_target = round(safe_cash_available * reserve_ratio, 2)
+    reserve_cash_target = round(total_portfolio_value * reserve_ratio, 2)
     deployable_cash_budget = round(max(0.0, safe_cash_available - reserve_cash_target), 2)
     min_cash_to_deploy = max(0.0, float(settings.MORNING_BRIEFING_MIN_CASH))
     can_deploy = deployable_cash_budget >= min_cash_to_deploy
     cash_deployment_options = _build_cash_deployment_options(
         candidates=research.top_3_buys if can_deploy else [],
+        deployable_cash_budget=deployable_cash_budget,
+        strategy_growth_pct=clamped_growth_pct,
+    )
+    if not cash_deployment_options and research.top_3_buys and (holdings_snapshot or []):
+        rotation_target_budget = max(min_cash_to_deploy, 0.0)
+        cash_deployment_options = _build_cash_deployment_options(
+            candidates=research.top_3_buys,
+            deployable_cash_budget=rotation_target_budget,
+            strategy_growth_pct=clamped_growth_pct,
+        )
+    execution_recommendations = _build_execution_recommendations(
+        holdings_actions=holdings_actions,
+        cash_deployment_options=cash_deployment_options,
+        holdings_snapshot=holdings_snapshot or [],
         deployable_cash_budget=deployable_cash_budget,
     )
 
@@ -987,6 +1269,7 @@ def generate_morning_briefing(
         reserve_ratio=reserve_ratio,
         reserve_cash_target=reserve_cash_target,
         deployable_cash_budget=deployable_cash_budget,
+        execution_recommendations=execution_recommendations,
         macro_news_summary=research.macro_summary,
         risk_flags=_build_risk_flags(research),
         generated_at=research.generated_at,
@@ -1018,12 +1301,18 @@ def latest_persisted_morning_briefing() -> MorningBriefingResponse | None:
 def generate_and_persist_morning_briefing(
     *,
     holdings: list[str],
+    holdings_snapshot: list[HoldingSnapshot] | None = None,
     cash_available: float,
+    strategy_growth_pct: float = 60.0,
+    strategy_fixed_pct: float = 40.0,
     focus: str = "",
 ) -> MorningBriefingResponse:
     briefing = generate_morning_briefing(
         holdings=holdings,
+        holdings_snapshot=holdings_snapshot,
         cash_available=cash_available,
+        strategy_growth_pct=strategy_growth_pct,
+        strategy_fixed_pct=strategy_fixed_pct,
         focus=focus,
     )
     persist_morning_briefing(briefing)

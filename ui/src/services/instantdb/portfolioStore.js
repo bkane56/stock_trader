@@ -313,12 +313,25 @@ export async function executeTrade({
   const marketPrice = Number(price) || 0;
   const currentCash = Number(portfolio?.cashReserve) || 0;
   const existing = positions.find((position) => position.symbol === symbol) || null;
+  const positionsMarketValue = positions.reduce((sum, position) => {
+    const positionShares = Number(position.shares) || 0;
+    const positionPrice =
+      Number(position.updatedPrice) || Number(position.avgCost) || Number(position.price) || 0;
+    return sum + positionShares * positionPrice;
+  }, 0);
+  const totalPortfolioValue = currentCash + positionsMarketValue;
+  const reserveFloor = totalPortfolioValue * 0.1;
   const txs = [];
 
   if (mode === "buy") {
     const cost = orderShares * marketPrice;
     if (cost > currentCash) {
       throw new Error("This order exceeds your available cash.");
+    }
+    if (currentCash - cost < reserveFloor) {
+      throw new Error(
+        "Order blocked: this buy would push cash below the 10% reserve floor."
+      );
     }
 
     if (existing) {

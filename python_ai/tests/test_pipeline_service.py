@@ -262,7 +262,7 @@ def test_generate_market_research_uses_openai_and_tools(monkeypatch: Any) -> Non
     monkeypatch.setattr(
         service,
         "_run_openai_agents_research",
-        lambda settings, holdings, focus, min_buy_confidence, require_web_search: (
+        lambda settings, holdings, focus, min_buy_confidence, strategy_growth_pct, strategy_fixed_pct, require_web_search: (
             service.MarketResearchResponse(
                 holdings_review=[
                     service.HoldingResearch(
@@ -397,6 +397,110 @@ def test_top_buys_guard_filters_do_not_buy_and_low_confidence() -> None:
     assert output.top_3_buys[0].symbol == "DEF"
 
 
+def test_top_buys_prefers_non_holdings_when_available() -> None:
+    payload = json.dumps(
+        {
+            "holdings_review": [
+                {
+                    "symbol": "AAPL",
+                    "stance": "hold",
+                    "confidence": 0.7,
+                    "reason": "Core position.",
+                }
+            ],
+            "sector_outlook": [],
+            "stock_ideas": [
+                {
+                    "symbol": "AAPL",
+                    "sector": "Technology",
+                    "thesis": "Quality compounder.",
+                    "risk": "Valuation.",
+                    "entry_style": "pullback",
+                    "confidence": 0.8,
+                },
+                {
+                    "symbol": "NVDA",
+                    "sector": "Technology",
+                    "thesis": "AI demand momentum.",
+                    "risk": "High volatility.",
+                    "entry_style": "pullback",
+                    "confidence": 0.82,
+                },
+            ],
+            "top_3_buys": [
+                {
+                    "symbol": "AAPL",
+                    "sector": "Technology",
+                    "thesis": "Quality compounder.",
+                    "risk": "Valuation.",
+                    "entry_style": "pullback",
+                    "confidence": 0.8,
+                }
+            ],
+            "do_not_buy": [],
+            "macro_summary": "Constructive trend.",
+        }
+    )
+
+    output = service._extract_market_research_from_model_output(
+        model_output=payload,
+        holdings=["AAPL"],
+        min_buy_confidence=0.6,
+        generated_at=service.datetime.now(service.timezone.utc),
+    )
+
+    assert len(output.top_3_buys) == 1
+    assert output.top_3_buys[0].symbol == "NVDA"
+
+
+def test_top_buys_allows_holdings_when_no_external_candidates() -> None:
+    payload = json.dumps(
+        {
+            "holdings_review": [
+                {
+                    "symbol": "MSFT",
+                    "stance": "add",
+                    "confidence": 0.74,
+                    "reason": "Strong setup.",
+                }
+            ],
+            "sector_outlook": [],
+            "stock_ideas": [
+                {
+                    "symbol": "MSFT",
+                    "sector": "Technology",
+                    "thesis": "Earnings durability.",
+                    "risk": "Macro slowdown.",
+                    "entry_style": "pullback",
+                    "confidence": 0.76,
+                }
+            ],
+            "top_3_buys": [
+                {
+                    "symbol": "MSFT",
+                    "sector": "Technology",
+                    "thesis": "Earnings durability.",
+                    "risk": "Macro slowdown.",
+                    "entry_style": "pullback",
+                    "confidence": 0.76,
+                }
+            ],
+            "do_not_buy": [],
+            "macro_summary": "Mixed macro.",
+        }
+    )
+
+    output = service._extract_market_research_from_model_output(
+        model_output=payload,
+        holdings=["MSFT"],
+        min_buy_confidence=0.6,
+        generated_at=service.datetime.now(service.timezone.utc),
+    )
+
+    assert len(output.top_3_buys) == 1
+    assert output.top_3_buys[0].symbol == "MSFT"
+
+
 def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     monkeypatch: Any,
 ) -> None:
@@ -410,7 +514,7 @@ def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="AAPL",
@@ -467,7 +571,7 @@ def test_generate_morning_briefing_without_cash_skips_deployment(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="QQQ",
@@ -518,7 +622,7 @@ def test_generate_morning_briefing_keeps_cash_reserve_and_splits_allocations(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
             holdings_review=[],
             sector_outlook=[],
             stock_ideas=[],
@@ -560,6 +664,185 @@ def test_generate_morning_briefing_keeps_cash_reserve_and_splits_allocations(
     assert output.cash_deployment_options[0].suggested_amount == 5400.0
     assert output.cash_deployment_options[1].symbol == "MSFT"
     assert output.cash_deployment_options[1].suggested_amount == 3600.0
+
+
+def test_generate_morning_briefing_strategy_caps_single_symbol_concentration(
+    monkeypatch: Any,
+) -> None:
+    now = service.datetime.now(service.timezone.utc)
+    settings = Settings(
+        MORNING_BRIEFING_MIN_CASH=1000.0,
+        MORNING_BRIEFING_CASH_RESERVE_RATIO=0.0,
+        OPENAI_API_KEY="",
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        service,
+        "generate_market_research",
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+            holdings_review=[],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[
+                service.StockIdea(
+                    symbol="NVDA",
+                    sector="Technology",
+                    thesis="AI demand remains resilient.",
+                    risk="Volatility.",
+                    entry_style="pullback",
+                    confidence=0.95,
+                ),
+                service.StockIdea(
+                    symbol="MSFT",
+                    sector="Technology",
+                    thesis="Durable quality growth.",
+                    risk="Multiple compression.",
+                    entry_style="pullback",
+                    confidence=0.05,
+                ),
+            ],
+            do_not_buy=[],
+            macro_summary="Constructive risk backdrop.",
+            generated_at=now,
+        ),
+    )
+
+    output = service.generate_morning_briefing(
+        holdings=[],
+        cash_available=10000.0,
+        strategy_growth_pct=20.0,
+        strategy_fixed_pct=80.0,
+        focus="",
+    )
+
+    assert len(output.cash_deployment_options) == 2
+    assert output.cash_deployment_options[0].symbol == "NVDA"
+    assert output.cash_deployment_options[0].suggested_allocation_pct == 0.4
+    assert output.cash_deployment_options[0].suggested_amount == 4000.0
+    assert output.cash_deployment_options[1].suggested_amount == 6000.0
+
+
+def test_generate_morning_briefing_builds_sell_then_buy_execution_line(
+    monkeypatch: Any,
+) -> None:
+    now = service.datetime.now(service.timezone.utc)
+    settings = Settings(
+        MORNING_BRIEFING_MIN_CASH=1000.0,
+        MORNING_BRIEFING_CASH_RESERVE_RATIO=0.10,
+        OPENAI_API_KEY="",
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        service,
+        "generate_market_research",
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+            holdings_review=[
+                service.HoldingResearch(
+                    symbol="AAPL",
+                    stance="trim",
+                    confidence=0.8,
+                    reason="Rotate into stronger setup.",
+                )
+            ],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[
+                service.StockIdea(
+                    symbol="NVDA",
+                    sector="Technology",
+                    thesis="AI demand remains resilient.",
+                    risk="Volatility.",
+                    entry_style="pullback",
+                    confidence=0.72,
+                )
+            ],
+            do_not_buy=[],
+            macro_summary="Constructive backdrop.",
+            generated_at=now,
+        ),
+    )
+
+    output = service.generate_morning_briefing(
+        holdings=["AAPL"],
+        holdings_snapshot=[
+            service.HoldingSnapshot(
+                symbol="AAPL",
+                name="Apple",
+                sector="Technology",
+                shares=20.0,
+                price=100.0,
+            )
+        ],
+        cash_available=300.0,
+        focus="",
+    )
+
+    assert len(output.execution_recommendations) == 1
+    execution = output.execution_recommendations[0]
+    assert execution.requires_rotation is True
+    assert execution.sell_leg is not None
+    assert execution.sell_leg.symbol == "AAPL"
+    assert execution.sell_leg.shares > 0
+    assert "Sell" in execution.summary
+    assert "then buy" in execution.summary.lower()
+
+
+def test_generate_morning_briefing_rotation_skips_unfunded_rows_without_sell_leg(
+    monkeypatch: Any,
+) -> None:
+    now = service.datetime.now(service.timezone.utc)
+    settings = Settings(
+        MORNING_BRIEFING_MIN_CASH=1000.0,
+        MORNING_BRIEFING_CASH_RESERVE_RATIO=0.10,
+        OPENAI_API_KEY="",
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        service,
+        "generate_market_research",
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+            holdings_review=[
+                service.HoldingResearch(
+                    symbol="AAPL",
+                    stance="hold",
+                    confidence=0.85,
+                    reason="Core position remains strong.",
+                )
+            ],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[
+                service.StockIdea(
+                    symbol="NVDA",
+                    sector="Technology",
+                    thesis="AI demand remains resilient.",
+                    risk="Volatility.",
+                    entry_style="pullback",
+                    confidence=0.72,
+                )
+            ],
+            do_not_buy=[],
+            macro_summary="Constructive backdrop.",
+            generated_at=now,
+        ),
+    )
+
+    output = service.generate_morning_briefing(
+        holdings=["AAPL"],
+        holdings_snapshot=[
+            service.HoldingSnapshot(
+                symbol="AAPL",
+                name="Apple",
+                sector="Technology",
+                shares=10.0,
+                price=100.0,
+            )
+        ],
+        cash_available=300.0,
+        focus="",
+    )
+
+    assert output.execution_recommendations == []
 
 
 def test_latest_persisted_morning_briefing_returns_none_when_missing(monkeypatch: Any) -> None:

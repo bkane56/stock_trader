@@ -68,6 +68,14 @@ class HoldingAction(BaseModel):
     reason: str
 
 
+class HoldingSnapshot(BaseModel):
+    symbol: str
+    name: str = ""
+    sector: str = ""
+    shares: float = Field(default=0.0, ge=0.0)
+    price: float = Field(default=0.0, ge=0.0)
+
+
 class CashDeploymentOption(BaseModel):
     symbol: str
     sector: str
@@ -77,6 +85,21 @@ class CashDeploymentOption(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     suggested_amount: float = Field(default=0.0, ge=0.0)
     suggested_allocation_pct: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class SellLeg(BaseModel):
+    symbol: str
+    shares: float = Field(default=0.0, ge=0.0)
+    estimated_price: float = Field(default=0.0, ge=0.0)
+    reason: str
+
+
+class ExecutionRecommendation(BaseModel):
+    key: str
+    summary: str
+    buy: CashDeploymentOption
+    sell_leg: SellLeg | None = None
+    requires_rotation: bool = False
 
 
 class RiskFlag(BaseModel):
@@ -93,6 +116,7 @@ class MorningBriefingResponse(BaseModel):
     reserve_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
     reserve_cash_target: float = Field(default=0.0, ge=0.0)
     deployable_cash_budget: float = Field(default=0.0, ge=0.0)
+    execution_recommendations: list[ExecutionRecommendation] = Field(default_factory=list)
     macro_news_summary: str
     risk_flags: list[RiskFlag]
     generated_at: datetime = Field(
@@ -102,6 +126,9 @@ class MorningBriefingResponse(BaseModel):
 
 class MorningBriefingGenerateRequest(BaseModel):
     holdings: list[str] = Field(default_factory=list)
+    holdings_snapshot: list[HoldingSnapshot] = Field(default_factory=list)
     cash_available: float = Field(default=0.0, ge=0.0)
+    strategy_growth_pct: float = Field(default=60.0, ge=0.0, le=100.0)
+    strategy_fixed_pct: float = Field(default=40.0, ge=0.0, le=100.0)
     focus: str = ""
     persist: bool = True

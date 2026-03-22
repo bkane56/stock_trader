@@ -136,7 +136,7 @@ def test_generate_briefing_endpoint_accepts_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         api_routes,
         "generate_and_persist_morning_briefing",
-        lambda holdings, cash_available, focus: (
+        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus: (
             api_routes.MorningBriefingResponse.model_validate(briefing)
         ),
     )

@@ -12,7 +12,16 @@ export async function fetchSymbolQuote(symbol) {
   }
   const response = await fetch(`${apiBaseUrl()}/quotes/${encodeURIComponent(normalized)}`);
   if (!response.ok) {
-    throw new Error(`Unable to fetch quote for ${normalized} (${response.status}).`);
+    let detail = "";
+    try {
+      const payload = await response.json();
+      detail = String(payload?.detail || "").trim();
+    } catch (_error) {
+      detail = "";
+    }
+    throw new Error(
+      detail || `Unable to fetch quote for ${normalized} (${response.status}).`
+    );
   }
   return response.json();
 }

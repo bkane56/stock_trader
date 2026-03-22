@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import {
   PieChart as RePieChart,
@@ -10,32 +10,43 @@ import {
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 
-export function StrategyBuilder({ strategySplit, setStrategySplit }) {
+export function StrategyBuilder({
+  strategySplit,
+  onApplyStrategy,
+  isApplyingStrategy = false,
+}) {
+  const [draftSplit, setDraftSplit] = useState(strategySplit);
+  const [applyFeedback, setApplyFeedback] = useState("");
+
+  useEffect(() => {
+    setDraftSplit(strategySplit);
+  }, [strategySplit]);
+
   const strategyData = useMemo(
     () => [
-      { name: "Growth Assets", value: strategySplit, color: "#3b82f6" },
-      { name: "Fixed Income", value: 100 - strategySplit, color: "#64748b" },
+      { name: "Growth Assets", value: draftSplit, color: "#3b82f6" },
+      { name: "Fixed Income", value: 100 - draftSplit, color: "#64748b" },
     ],
-    [strategySplit],
+    [draftSplit],
   );
 
   const riskProfile = useMemo(() => {
-    if (strategySplit <= 20)
+    if (draftSplit <= 20)
       return {
         label: "Conservative",
         desc: "Minimal exposure to market volatility. Focuses on capital preservation and steady income through high-grade bonds.",
       };
-    if (strategySplit <= 40)
+    if (draftSplit <= 40)
       return {
         label: "Moderate-Conservative",
         desc: "A defensive posture with modest growth potential. Primarily fixed income with a selective equity component.",
       };
-    if (strategySplit <= 60)
+    if (draftSplit <= 60)
       return {
         label: "Moderate",
         desc: "Balanced approach seeking a blend of income and capital appreciation across diverse asset classes.",
       };
-    if (strategySplit <= 80)
+    if (draftSplit <= 80)
       return {
         label: "Moderate-Aggressive",
         desc: "Focuses on capital appreciation with significant equity exposure. Suitable for investors with a longer time horizon.",
@@ -44,7 +55,15 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
       label: "Aggressive",
       desc: "Maximum focus on growth through full equity and alternative exposure. High potential for volatility and returns.",
     };
-  }, [strategySplit]);
+  }, [draftSplit]);
+
+  const hasPendingChanges = draftSplit !== strategySplit;
+
+  const handleApplyStrategy = async () => {
+    if (!hasPendingChanges || isApplyingStrategy) return;
+    const ok = await onApplyStrategy?.(draftSplit);
+    setApplyFeedback(ok ? "Strategy applied and saved." : "Unable to apply strategy.");
+  };
 
   return (
     <motion.div
@@ -80,11 +99,11 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                   </label>
                   <div className="text-right">
                     <span className="text-3xl font-black text-blue-600 tracking-tighter">
-                      {strategySplit}%
+                      {draftSplit}%
                     </span>
                     <span className="text-slate-300 mx-3 text-2xl">/</span>
                     <span className="text-3xl font-black text-slate-500 tracking-tighter">
-                      {100 - strategySplit}%
+                      {100 - draftSplit}%
                     </span>
                   </div>
                 </div>
@@ -93,8 +112,11 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                   min="0"
                   max="100"
                   step="5"
-                  value={strategySplit}
-                  onChange={(e) => setStrategySplit(Number(e.target.value))}
+                  value={draftSplit}
+                  onChange={(e) => {
+                    setDraftSplit(Number(e.target.value));
+                    setApplyFeedback("");
+                  }}
                   className="w-full h-3 bg-slate-100 rounded-full appearance-none cursor-pointer accent-teal-600"
                 />
                 <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -116,9 +138,24 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
           </div>
 
           <div className="mt-12 pt-8 border-t border-slate-100">
-            <button className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 text-lg uppercase tracking-widest">
-              Apply New Strategy
+            <button
+              onClick={handleApplyStrategy}
+              disabled={!hasPendingChanges || isApplyingStrategy}
+              className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 text-lg uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isApplyingStrategy ? "Applying..." : "Apply New Strategy"}
             </button>
+            {applyFeedback ? (
+              <p
+                className={`text-center text-[10px] font-bold mt-3 uppercase tracking-widest ${
+                  applyFeedback.startsWith("Strategy applied")
+                    ? "text-emerald-600"
+                    : "text-rose-600"
+                }`}
+              >
+                {applyFeedback}
+              </p>
+            ) : null}
             <p className="text-center text-[10px] font-bold text-slate-400 mt-6 uppercase tracking-widest leading-relaxed">
               Calculations based on current market valuations. Past performance
               is not indicative of future results.
@@ -159,7 +196,7 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                   Target Allocation
                 </span>
                 <span className="text-4xl font-black text-slate-900 tracking-tighter">
-                  {strategySplit >= 50 ? "Growth" : "Fixed"}
+                  {draftSplit >= 50 ? "Growth" : "Fixed"}
                 </span>
               </div>
             </div>
@@ -196,7 +233,7 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                 Est. Annual Return
               </span>
               <span className="text-2xl font-black text-slate-900 tracking-tighter">
-                {(3.2 + (strategySplit / 100) * 6).toFixed(1)}%
+                {(3.2 + (draftSplit / 100) * 6).toFixed(1)}%
               </span>
             </GlassCard>
             <GlassCard className="p-6">
@@ -204,7 +241,7 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                 Volatility (σ)
               </span>
               <span className="text-2xl font-black text-slate-900 tracking-tighter">
-                {(4.1 + (strategySplit / 100) * 14).toFixed(1)}%
+                {(4.1 + (draftSplit / 100) * 14).toFixed(1)}%
               </span>
             </GlassCard>
             <GlassCard className="p-6">
@@ -212,7 +249,7 @@ export function StrategyBuilder({ strategySplit, setStrategySplit }) {
                 Sharpe Ratio
               </span>
               <span className="text-2xl font-black text-slate-900 tracking-tighter">
-                {(0.85 + (strategySplit / 100) * 0.3).toFixed(2)}
+                {(0.85 + (draftSplit / 100) * 0.3).toFixed(2)}
               </span>
             </GlassCard>
           </div>

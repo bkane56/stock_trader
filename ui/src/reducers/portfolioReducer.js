@@ -93,6 +93,12 @@ export function portfolioReducer(state = initialPortfolioState, action) {
       const { symbol, name, sector, price, shares } = action.payload;
       const cost = price * shares;
       if (state.cash < cost) return state;
+      const holdingsMarketValue = state.holdings.reduce(
+        (sum, holding) => sum + (Number(holding.totalValue) || Number(holding.shares) * Number(holding.price) || 0),
+        0
+      );
+      const reserveFloor = (state.cash + holdingsMarketValue) * 0.1;
+      if (state.cash - cost < reserveFloor) return state;
 
       const existing = state.holdings.find((h) => h.symbol === symbol);
       const newHoldings = existing

@@ -44,26 +44,41 @@ export function Dashboard({
   recommendationOrderStatus,
   onRecommendationDecision,
 }) {
+  const formatCurrency = (value) =>
+    Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   const activeTradingMode = getTradingMode(tradingMode);
   const isAssistedMode = activeTradingMode.id === "assisted_agent";
-  const holdingSymbols = new Set(
-    (holdings || []).map((holding) => String(holding.symbol || "").toUpperCase())
+  const activeHoldings = (holdings || []).filter(
+    (holding) =>
+      String(holding?.symbol || "").trim().length > 0 && (Number(holding?.shares) || 0) > 0
   );
+  const holdingSymbols = new Set(
+    activeHoldings.map((holding) => String(holding.symbol || "").toUpperCase())
+  );
+  const positionsMarketValue = activeHoldings.reduce(
+    (sum, holding) => sum + (Number(holding.totalValue) || 0),
+    0
+  );
+  const unrealizedPnl = positionsMarketValue - Number(investedAmount || 0);
   const visibleTransactions = showAllTransactions
     ? transactions
     : transactions.slice(0, 3);
   const deploymentPct =
-    totalValue > 0 ? Math.min(100, (investedAmount / totalValue) * 100) : 0;
+    totalValue > 0 ? Math.min(100, (positionsMarketValue / totalValue) * 100) : 0;
   const topActions = (morningBriefing?.holdings_actions || [])
     .filter((item) => holdingSymbols.has(String(item.symbol || "").toUpperCase()))
     .slice(0, 3);
-  const topDeployIdeas = (morningBriefing?.cash_deployment_options || []).slice(
-    0,
-    3,
-  );
-  const topHoldings = [...holdings]
+  const topDeployIdeas = (
+    morningBriefing?.execution_recommendations?.length
+      ? morningBriefing.execution_recommendations
+      : morningBriefing?.cash_deployment_options || []
+  ).slice(0, 3);
+  const topHoldings = [...activeHoldings]
     .sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0))
-    .slice(0, 6);
+    .slice(0, activeHoldings.length);
   const generatedAt = morningBriefing?.generated_at
     ? new Date(morningBriefing.generated_at).toLocaleString()
     : "";
@@ -123,14 +138,11 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $
-              {totalValue.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-              })}
+              ${formatCurrency(totalValue)}
             </h3>
             <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
               <ArrowUpRight size={16} />
-              {holdings.length} active positions
+              {activeHoldings.length} active positions
             </p>
           </div>
         </GlassCard>
@@ -138,7 +150,7 @@ export function Dashboard({
         <GlassCard className="group hover:shadow-lg transition-all duration-300">
           <div className="flex items-center justify-between mb-6">
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-              Invested Amount
+              Invested Cost Basis
             </span>
             <div className="p-2 bg-blue-50 rounded-lg text-blue-600 group-hover:scale-110 transition-transform">
               <TrendingUp size={20} />
@@ -146,13 +158,17 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $
-              {investedAmount.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-              })}
+              ${formatCurrency(investedAmount)}
             </h3>
-            <p className="text-sm font-bold text-slate-400">
-              {deploymentPct.toFixed(1)}% Deployment
+            <p className="text-sm font-bold text-slate-400 mb-1">
+              Historical cost basis
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              Current market value ${formatCurrency(positionsMarketValue)} (
+              {unrealizedPnl >= 0 ? "+" : "-"}${formatCurrency(Math.abs(unrealizedPnl))} vs cost basis)
+            </p>
+            <p className="text-xs font-bold text-slate-500">
+              {deploymentPct.toFixed(1)}% of portfolio currently deployed
             </p>
           </div>
         </GlassCard>
@@ -168,10 +184,7 @@ export function Dashboard({
           </div>
           <div className="space-y-2">
             <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
-              $
-              {cash.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-              })}
+              ${formatCurrency(cash)}
             </h3>
             <p className="text-sm font-bold text-slate-400">
               Ready for deployment
@@ -205,7 +218,7 @@ export function Dashboard({
                 Holdings Snapshot
               </h2>
               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                Top live positions by current value
+                Live positions by current value
               </p>
             </div>
             <button
@@ -248,10 +261,7 @@ export function Dashboard({
                         {Number(holding.shares).toFixed(2)}
                       </td>
                       <td className="px-5 py-4 text-sm font-black text-slate-900 text-right">
-                        $
-                        {(Number(holding.totalValue) || 0).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                        })}
+                        ${formatCurrency(Number(holding.totalValue) || 0)}
                       </td>
                     </tr>
                   ))}
@@ -318,7 +328,7 @@ export function Dashboard({
                           className="text-xs font-medium text-blue-700 leading-relaxed"
                         >
                           {item.symbol}: {item.action.toUpperCase()} (
-                          {Math.round(item.confidence * 100)}%)
+                          {Math.round(item.confidence * 100)}% confidence)
                         </p>
                       ))
                     ) : (
@@ -335,65 +345,68 @@ export function Dashboard({
                   </p>
                   <div className="space-y-2">
                     {topDeployIdeas.length ? (
-                      topDeployIdeas.map((item) => (
-                        <div
-                          key={`${item.symbol}-${item.entry_style}`}
-                          className="rounded-xl border border-slate-200 bg-white p-3"
-                        >
-                          <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                            {item.symbol} ({item.entry_style}) - {item.thesis}
-                          </p>
-                          {isAssistedMode ? (
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() =>
-                                    onRecommendationDecision?.({
-                                      key: `${item.symbol}:${item.entry_style}`,
-                                      decision: "accepted",
-                                      recommendation: item,
-                                    })
+                      topDeployIdeas.map((item) => {
+                        const recKey = item.key || `${item.symbol}:${item.entry_style}`;
+                        return (
+                          <div
+                            key={`${recKey}-${item.entry_style || ""}`}
+                            className="rounded-xl border border-slate-200 bg-white p-3"
+                          >
+                            <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                              {item.summary ||
+                                `${item.symbol} (${item.entry_style}) - ${item.thesis}`}
+                            </p>
+                            {isAssistedMode ? (
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      onRecommendationDecision?.({
+                                        key: recKey,
+                                        decision: "accepted",
+                                        recommendation: item,
+                                      })
+                                    }
+                                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      onRecommendationDecision?.({
+                                        key: recKey,
+                                        decision: "declined",
+                                        recommendation: item,
+                                      })
+                                    }
+                                    className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                                {(() => {
+                                  const orderStatus = String(
+                                    recommendationOrderStatus?.[recKey] || "",
+                                  ).toLowerCase();
+                                  const decision = String(
+                                    recommendationDecisions?.[recKey] || "pending",
+                                  ).toUpperCase();
+                                  if (orderStatus === "submitting") {
+                                    return <Badge variant="warning">SUBMITTING</Badge>;
                                   }
-                                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors"
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    onRecommendationDecision?.({
-                                      key: `${item.symbol}:${item.entry_style}`,
-                                      decision: "declined",
-                                      recommendation: item,
-                                    })
+                                  if (orderStatus === "submitted") {
+                                    return <Badge variant="success">ORDER SUBMITTED</Badge>;
                                   }
-                                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors"
-                                >
-                                  Decline
-                                </button>
+                                  if (orderStatus === "failed") {
+                                    return <Badge variant="warning">ORDER FAILED</Badge>;
+                                  }
+                                  return <Badge variant="info">{decision}</Badge>;
+                                })()}
                               </div>
-                              {(() => {
-                                const recKey = `${item.symbol}:${item.entry_style}`;
-                                const orderStatus = String(
-                                  recommendationOrderStatus?.[recKey] || "",
-                                ).toLowerCase();
-                                const decision = String(
-                                  recommendationDecisions?.[recKey] || "pending",
-                                ).toUpperCase();
-                                if (orderStatus === "submitting") {
-                                  return <Badge variant="warning">SUBMITTING</Badge>;
-                                }
-                                if (orderStatus === "submitted") {
-                                  return <Badge variant="success">ORDER SUBMITTED</Badge>;
-                                }
-                                if (orderStatus === "failed") {
-                                  return <Badge variant="warning">ORDER FAILED</Badge>;
-                                }
-                                return <Badge variant="info">{decision}</Badge>;
-                              })()}
-                            </div>
-                          ) : null}
-                        </div>
-                      ))
+                            ) : null}
+                          </div>
+                        );
+                      })
                     ) : (
                       <p className="text-xs font-medium text-slate-600 leading-relaxed">
                         No deploy-cash candidates for current conditions.
@@ -471,10 +484,7 @@ export function Dashboard({
                     {tx.date}
                   </td>
                   <td className="px-8 py-5 text-sm font-black text-slate-900 text-right">
-                    $
-                    {tx.amount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
+                    ${formatCurrency(tx.amount)}
                   </td>
                   <td className="px-8 py-5 text-right">
                     <Badge
