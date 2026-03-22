@@ -48,12 +48,11 @@ That response means Railway’s proxy **did not get a healthy HTTP response** fr
 
 1. **Open logs:** Railway → your service → **Deployments** → latest deployment → **View logs**. Look for a Python traceback or “Address already in use”.
 2. **Bind to `0.0.0.0` and use Railway’s `PORT`:**  
-   Do **not** hardcode `8080` in the start command unless it matches what Railway sets. Prefer:
-   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`  
-   (The repo’s `python_ai/Dockerfile` already does this.)
+   Use `$PORT` (Railway sets it, often `8080`). The repo `python_ai/Dockerfile` runs `python -m uvicorn` from `.venv` on `${PORT:-8000}`.
 3. **Working directory:** `uvicorn app.main:app` must run with **`python_ai` as the working directory** (or `PYTHONPATH` set), or imports fail at startup.
-4. **`uvicorn: not found`:** Dependencies from `uv sync` live in `.venv`; use **`uv run uvicorn ...`** (not bare `uvicorn`). The repo Dockerfile does this. If you use a **custom start command** without Docker:  
-   `cd python_ai && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+4. **`uvicorn: not found`:** Dependencies from `uv sync` live in `.venv`; **bare `uvicorn` is not on `PATH`**. The Dockerfile uses  
+   `/app/python_ai/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`.  
+   If Railway **isn’t using the Dockerfile**, set the start command to that (or `cd python_ai && .venv/bin/python -m uvicorn ...` after a build that creates `.venv`). **Turn off** any custom command that only says `uvicorn ...`.
 5. **Use the Dockerfile:** Settings → set **Dockerfile path** to `python_ai/Dockerfile` and build from **repo root**. If Railway auto-detected Nixpacks instead, the start command may be wrong — switch to Docker or fix the custom start command.
 6. **Redeploy** after changing variables or start settings.
 
