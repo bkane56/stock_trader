@@ -12,3 +12,34 @@ export async function fetchLatestMorningBriefing() {
   }
   return response.json();
 }
+
+export async function generateMorningBriefing({
+  holdings = [],
+  cashAvailable = 0,
+  focus = "",
+  persist = false,
+} = {}) {
+  const normalizedHoldings = Array.from(
+    new Set(
+      (holdings || [])
+        .map((symbol) => String(symbol || "").trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  const response = await fetch(`${apiBaseUrl()}/briefings/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      holdings: normalizedHoldings,
+      cash_available: Math.max(0, Number(cashAvailable) || 0),
+      focus: String(focus || ""),
+      persist: Boolean(persist),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to generate morning briefing (${response.status})`);
+  }
+  return response.json();
+}

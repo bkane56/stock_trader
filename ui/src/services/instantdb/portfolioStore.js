@@ -77,7 +77,7 @@ export async function ensurePortfolioForUser(userId) {
   const portfolioId = instantId();
   const { strategyGrowthPct, strategyFixedPct } = strategyFromGrowth(DEFAULT_GROWTH_PCT);
 
-  const txs = [
+  const bootstrapTxs = [
     instantDb.tx.users[userId].update({
       userId,
       createdAt,
@@ -92,13 +92,14 @@ export async function ensurePortfolioForUser(userId) {
       strategyFixedPct,
       createdAt,
       updatedAt: createdAt,
-    }),
+    }).link({ owner: userId }),
   ];
 
+  const positionTxs = [];
   seedHoldings.forEach((holding) => {
     const positionId = instantId();
     const acquiredAt = new Date(holding.dateAcquired).valueOf() || createdAt;
-    txs.push(
+    positionTxs.push(
       instantDb.tx.positions[positionId].update({
         portfolioId,
         symbol: holding.symbol,
@@ -111,15 +112,70 @@ export async function ensurePortfolioForUser(userId) {
         analysisText: holding.analysis?.text || "Seeded from local portfolio file.",
         createdAt: acquiredAt,
         updatedAt: acquiredAt,
-      })
+      }).link({ portfolio: portfolioId })
     );
   });
 
-  holdingsToSeedEvents(seedHoldings, portfolioId).forEach((event) => {
-    txs.push(instantDb.tx.portfolio_events[event.id].update(event));
-  });
+  const eventTxs = holdingsToSeedEvents(seedHoldings, portfolioId).map((event) =>
+    instantDb.tx.portfolio_events[event.id].update(event).link({ portfolio: portfolioId })
+  );
 
-  await instantDb.transact(txs);
+  // Stage writes so owner-based refs are resolvable before child records are created.
+  await instantDb.transact(bootstrapTxs);
+  if (positionTxs.length) {
+    await instantDb.transact(positionTxs);
+  }
+  if (eventTxs.length) {
+    await instantDb.transact(eventTxs);
+  }
+}
+
+export async function ensurePortfolioOwnershipLink(portfolioId, userId) {
+  if (!instantDb || !portfolioId || !userId) return;
+  await instantDb.transact(
+    instantDb.tx.portfolios[portfolioId].link({ owner: userId })
+  );
+}
+
+export async function seedPortfolioDefaultsIfEmpty(portfolioId, positionRecords = [], eventRecords = []) {
+  if (!instantDb || !portfolioId) return;
+  if (positionRecords.length > 0) return;
+  const hasTradeEvents = eventRecords.some(
+    (event) => event.eventType === "BUY" || event.eventType === "SELL"
+  );
+  if (hasTradeEvents) return;
+
+  const createdAt = Date.now();
+  const positionTxs = [];
+  seedHoldings.forEach((holding) => {
+    const positionId = instantId();
+    const acquiredAt = new Date(holding.dateAcquired).valueOf() || createdAt;
+    positionTxs.push(
+      instantDb.tx.positions[positionId].update({
+        portfolioId,
+        symbol: holding.symbol,
+        name: holding.name,
+        sector: holding.sector,
+        shares: holding.shares,
+        avgCost: holding.price,
+        updatedPrice: holding.price,
+        analysisTag: holding.analysis?.tag || "Seed Position",
+        analysisText: holding.analysis?.text || "Seeded from local portfolio file.",
+        createdAt: acquiredAt,
+        updatedAt: acquiredAt,
+      }).link({ portfolio: portfolioId })
+    );
+  });
+  const eventTxs = holdingsToSeedEvents(seedHoldings, portfolioId).map((event) =>
+    instantDb.tx.portfolio_events[event.id].update(event).link({ portfolio: portfolioId })
+  );
+
+  if (positionTxs.length) {
+    await instantDb.transact(positionTxs);
+  }
+  if (eventTxs.length) {
+    await instantDb.transact(eventTxs);
+  }
 }
 
 function buildTransactionsFromEvents(events = []) {
@@ -215,22 +271,28 @@ export async function adjustCashReserve({ portfolio, mode, amount }) {
       amount,
     });
   const now = Date.now();
-
-  await instantDb.transact([
+  await instantDb.transact(
     instantDb.tx.portfolios[portfolio.id].update({
       cashReserve: nextCash,
       updatedAt: now,
-    }),
-    instantDb.tx.portfolio_events[instantId()].update({
-      portfolioId: portfolio.id,
-      eventType,
-      symbol: eventSymbol,
-      asset: eventAsset,
-      amount: normalizedAmount,
-      status: "Completed",
-      eventAt: now,
-    }),
-  ]);
+    })
+  );
+
+  try {
+    await instantDb.transact(
+      instantDb.tx.portfolio_events[instantId()].update({
+        portfolioId: portfolio.id,
+        eventType,
+        symbol: eventSymbol,
+        asset: eventAsset,
+        amount: normalizedAmount,
+        status: "Completed",
+        eventAt: now,
+      }).link({ portfolio: portfolio.id })
+    );
+  } catch (_eventError) {
+    // Keep cash updates reliable even if event-log permissions/config are stricter.
+  }
 }
 
 export async function executeTrade({
@@ -290,7 +352,7 @@ export async function executeTrade({
           analysisText: "Recently added to portfolio.",
           createdAt: Date.now(),
           updatedAt: Date.now(),
-        })
+        }).link({ portfolio: portfolio.id })
       );
     }
 
@@ -311,7 +373,7 @@ export async function executeTrade({
         amount: cost,
         status: "Completed",
         eventAt: Date.now(),
-      })
+      }).link({ portfolio: portfolio.id })
     );
   } else if (mode === "sell") {
     if (!existing) {
@@ -352,7 +414,7 @@ export async function executeTrade({
         amount: proceeds,
         status: "Completed",
         eventAt: Date.now(),
-      })
+      }).link({ portfolio: portfolio.id })
     );
   } else {
     throw new Error(`Unsupported trade mode: ${mode}`);

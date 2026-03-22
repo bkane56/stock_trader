@@ -75,6 +75,8 @@ class CashDeploymentOption(BaseModel):
     risk: str
     entry_style: str = Field(pattern="^(immediate|pullback|watchlist)$")
     confidence: float = Field(ge=0.0, le=1.0)
+    suggested_amount: float = Field(default=0.0, ge=0.0)
+    suggested_allocation_pct: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class RiskFlag(BaseModel):
@@ -87,6 +89,10 @@ class MorningBriefingResponse(BaseModel):
     execution_mode: str = Field(default="manual", pattern="^(manual)$")
     holdings_actions: list[HoldingAction]
     cash_deployment_options: list[CashDeploymentOption]
+    cash_available: float = Field(default=0.0, ge=0.0)
+    reserve_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    reserve_cash_target: float = Field(default=0.0, ge=0.0)
+    deployable_cash_budget: float = Field(default=0.0, ge=0.0)
     macro_news_summary: str
     risk_flags: list[RiskFlag]
     generated_at: datetime = Field(

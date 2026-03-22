@@ -294,6 +294,9 @@ def _build_research_user_prompt(
         "Start with broad market and world-news context using "
         "`get_general_market_news_digest` once.\n"
         "Run multiple searches and compare sources before concluding.\n"
+        "Cover all of the following evidence areas before deciding: "
+        "macro regime, sector momentum/rotation, and company-specific catalysts.\n"
+        "For each current holding, include at least one stock-specific evidence point.\n"
         f"Minimum confidence for top_3_buys is {min_buy_confidence:.2f}.\n"
         f"Current holdings: {holdings_text}\n"
         f"Research focus: {focus_text}\n"
@@ -312,6 +315,62 @@ def _build_research_user_prompt(
         '"macro_summary":"..."'
         "}"
     )
+
+
+def _build_cash_deployment_options(
+    *,
+    candidates: list[StockIdea],
+    deployable_cash_budget: float,
+) -> list[CashDeploymentOption]:
+    if deployable_cash_budget <= 0:
+        return []
+    if not candidates:
+        return []
+
+    safe_budget = round(max(0.0, float(deployable_cash_budget)), 2)
+    if safe_budget <= 0:
+        return []
+
+    # Convert confidence scores into allocation weights with a tiny floor.
+    weights = [max(0.01, float(row.confidence)) for row in candidates]
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        return []
+
+    raw_allocations = [safe_budget * (weight / total_weight) for weight in weights]
+    allocations: list[float] = []
+    running_total = 0.0
+    for idx, amount in enumerate(raw_allocations):
+        if idx == len(raw_allocations) - 1:
+            final_amount = round(max(0.0, safe_budget - running_total), 2)
+            allocations.append(final_amount)
+            running_total += final_amount
+            continue
+        rounded_amount = round(max(0.0, amount), 2)
+        allocations.append(rounded_amount)
+        running_total += rounded_amount
+
+    if allocations:
+        delta = round(safe_budget - round(sum(allocations), 2), 2)
+        if delta != 0:
+            allocations[-1] = round(max(0.0, allocations[-1] + delta), 2)
+
+    options: list[CashDeploymentOption] = []
+    for row, amount in zip(candidates, allocations, strict=False):
+        allocation_pct = (amount / safe_budget) if safe_budget > 0 else 0.0
+        options.append(
+            CashDeploymentOption(
+                symbol=row.symbol,
+                sector=row.sector,
+                thesis=row.thesis,
+                risk=row.risk,
+                entry_style=row.entry_style,
+                confidence=row.confidence,
+                suggested_amount=amount,
+                suggested_allocation_pct=round(allocation_pct, 4),
+            )
+        )
+    return options
 
 
 def _extract_market_research_from_model_output(
@@ -909,25 +968,25 @@ def generate_morning_briefing(
         for row in research.holdings_review
     ]
 
+    safe_cash_available = max(0.0, float(cash_available))
+    reserve_ratio = settings.resolved_morning_briefing_cash_reserve_ratio()
+    reserve_cash_target = round(safe_cash_available * reserve_ratio, 2)
+    deployable_cash_budget = round(max(0.0, safe_cash_available - reserve_cash_target), 2)
     min_cash_to_deploy = max(0.0, float(settings.MORNING_BRIEFING_MIN_CASH))
-    cash_deployment_options: list[CashDeploymentOption] = []
-    if cash_available >= min_cash_to_deploy:
-        cash_deployment_options = [
-            CashDeploymentOption(
-                symbol=row.symbol,
-                sector=row.sector,
-                thesis=row.thesis,
-                risk=row.risk,
-                entry_style=row.entry_style,
-                confidence=row.confidence,
-            )
-            for row in research.top_3_buys
-        ]
+    can_deploy = deployable_cash_budget >= min_cash_to_deploy
+    cash_deployment_options = _build_cash_deployment_options(
+        candidates=research.top_3_buys if can_deploy else [],
+        deployable_cash_budget=deployable_cash_budget,
+    )
 
     return MorningBriefingResponse(
         execution_mode="manual",
         holdings_actions=holdings_actions,
         cash_deployment_options=cash_deployment_options,
+        cash_available=safe_cash_available,
+        reserve_ratio=reserve_ratio,
+        reserve_cash_target=reserve_cash_target,
+        deployable_cash_budget=deployable_cash_budget,
         macro_news_summary=research.macro_summary,
         risk_flags=_build_risk_flags(research),
         generated_at=research.generated_at,
@@ -1000,6 +1059,9 @@ def runtime_health_details() -> dict[str, Any]:
     details["openai_api_key_configured"] = "yes" if bool(settings.OPENAI_API_KEY.strip()) else "no"
     details["serper_api_key_configured"] = "yes" if bool(settings.SERPER_API_KEY.strip()) else "no"
     details["research_min_buy_confidence"] = settings.resolved_research_min_buy_confidence()
+    details["morning_briefing_cash_reserve_ratio"] = (
+        settings.resolved_morning_briefing_cash_reserve_ratio()
+    )
     details["configured_advisor_tools"] = advisor_tool_names
     details["mcp_runtime_configured"] = runtime.debug_snapshot()
     details["mcp_runtime_last_run"] = latest_mcp_runtime_debug()

@@ -1,18 +1,6 @@
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-
-@dataclass(frozen=True)
-class SkillRecord:
-    id: str
-    name: str
-    description: str
-    path: str
-    category: str
-    risk: str
-    source: str
 
 
 class SkillsCatalog:
@@ -20,30 +8,81 @@ class SkillsCatalog:
         self,
         repo_root: Path,
         index_path: str = "skills_index.json",
-        skills_root: str = "skills",
+        skills_root: str = ".agents/skills",
     ) -> None:
         self._repo_root = repo_root
-        self._index_path = self._repo_root / index_path
-        self._skills_root = self._repo_root / skills_root
-        self._skills_by_id: dict[str, SkillRecord] = {}
+        index_candidate = Path(index_path)
+        skills_root_candidate = Path(skills_root)
+        self._index_path = (
+            index_candidate
+            if index_candidate.is_absolute()
+            else self._repo_root / index_candidate
+        )
+        self._skills_root = (
+            skills_root_candidate
+            if skills_root_candidate.is_absolute()
+            else self._repo_root / skills_root_candidate
+        )
+        self._skills_by_id: dict[str, dict[str, str]] = {}
         self._load_index()
 
     def _load_index(self) -> None:
+        indexed_skills: dict[str, dict[str, str]] = self._read_indexed_skills()
+        discovered_skills: dict[str, dict[str, str]] = {}
+
+        if self._skills_root.exists():
+            for markdown_path in sorted(self._skills_root.glob("**/SKILL.md")):
+                skill_dir = markdown_path.parent
+                skill_id = skill_dir.name.strip()
+                if not skill_id:
+                    continue
+
+                metadata = indexed_skills.get(skill_id, {})
+                relative_path = self._catalog_path_for_skill_dir(skill_dir)
+                discovered_skills[skill_id] = {
+                    "id": skill_id,
+                    "name": metadata.get("name", skill_id),
+                    "description": metadata.get(
+                        "description",
+                        self._extract_description_from_markdown(markdown_path),
+                    ),
+                    "path": relative_path,
+                    "category": metadata.get(
+                        "category",
+                        self._infer_category(skill_dir=skill_dir),
+                    ),
+                    "risk": metadata.get("risk", "unknown"),
+                    "source": metadata.get("source", "unknown"),
+                }
+
+        # Keep index-only skills when available (backward compatibility).
+        parsed: dict[str, dict[str, str]] = dict(discovered_skills)
+        for skill_id, item in indexed_skills.items():
+            if skill_id in parsed:
+                continue
+            parsed[skill_id] = item
+
+        self._skills_by_id = parsed
+
+    def _catalog_path_for_skill_dir(self, skill_dir: Path) -> str:
+        try:
+            return skill_dir.relative_to(self._repo_root).as_posix()
+        except ValueError:
+            return skill_dir.resolve().as_posix()
+
+    def _read_indexed_skills(self) -> dict[str, dict[str, str]]:
         if not self._index_path.exists():
-            self._skills_by_id = {}
-            return
+            return {}
 
         try:
             raw_index = json.loads(self._index_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            self._skills_by_id = {}
-            return
+            return {}
 
         if not isinstance(raw_index, list):
-            self._skills_by_id = {}
-            return
+            return {}
 
-        parsed: dict[str, SkillRecord] = {}
+        parsed: dict[str, dict[str, str]] = {}
         for item in raw_index:
             if not isinstance(item, dict):
                 continue
@@ -51,18 +90,51 @@ class SkillsCatalog:
             path = str(item.get("path", "")).strip()
             if not skill_id or not path:
                 continue
-            parsed[skill_id] = SkillRecord(
-                id=skill_id,
-                name=str(item.get("name", skill_id)).strip() or skill_id,
-                description=str(item.get("description", "")).strip(),
-                path=path,
-                category=str(item.get("category", "uncategorized")).strip()
+            parsed[skill_id] = {
+                "id": skill_id,
+                "name": str(item.get("name", skill_id)).strip() or skill_id,
+                "description": str(item.get("description", "")).strip(),
+                "path": path,
+                "category": str(item.get("category", "uncategorized")).strip()
                 or "uncategorized",
-                risk=str(item.get("risk", "unknown")).strip() or "unknown",
-                source=str(item.get("source", "unknown")).strip() or "unknown",
-            )
+                "risk": str(item.get("risk", "unknown")).strip() or "unknown",
+                "source": str(item.get("source", "unknown")).strip() or "unknown",
+            }
+        return parsed
 
-        self._skills_by_id = parsed
+    def _extract_description_from_markdown(self, markdown_path: Path) -> str:
+        try:
+            content = markdown_path.read_text(encoding="utf-8")
+        except OSError:
+            return "No description provided."
+
+        lines = [line.strip() for line in content.splitlines()]
+        in_front_matter = False
+        for line in lines:
+            if line == "---":
+                in_front_matter = not in_front_matter
+                continue
+            if not in_front_matter:
+                continue
+            if line.lower().startswith("description:"):
+                description = line.split(":", 1)[1].strip().strip('"').strip("'")
+                return description or "No description provided."
+
+        for line in lines:
+            if not line or line.startswith("#") or line == "---":
+                continue
+            return line
+        return "No description provided."
+
+    def _infer_category(self, skill_dir: Path) -> str:
+        try:
+            relative_to_root = skill_dir.relative_to(self._skills_root)
+        except ValueError:
+            return "uncategorized"
+        parts = relative_to_root.parts
+        if len(parts) >= 2:
+            return parts[0]
+        return "uncategorized"
 
     def is_enabled(self) -> bool:
         return bool(self._skills_by_id)
@@ -70,7 +142,7 @@ class SkillsCatalog:
     def total_skills(self) -> int:
         return len(self._skills_by_id)
 
-    def search(self, query: str = "", limit: int = 10) -> list[SkillRecord]:
+    def search(self, query: str = "", limit: int = 10) -> list[dict[str, str]]:
         safe_limit = max(1, min(limit, 50))
         normalized_query = query.strip().lower()
 
@@ -81,14 +153,14 @@ class SkillsCatalog:
         matches = [
             skill
             for skill in all_skills
-            if normalized_query in skill.id.lower()
-            or normalized_query in skill.name.lower()
-            or normalized_query in skill.description.lower()
-            or normalized_query in skill.category.lower()
+            if normalized_query in skill["id"].lower()
+            or normalized_query in skill["name"].lower()
+            or normalized_query in skill["description"].lower()
+            or normalized_query in skill["category"].lower()
         ]
         return matches[:safe_limit]
 
-    def get(self, skill_id: str) -> SkillRecord | None:
+    def get(self, skill_id: str) -> dict[str, str] | None:
         return self._skills_by_id.get(skill_id.strip())
 
     def read_skill_markdown(self, skill_id: str) -> str:
@@ -96,22 +168,27 @@ class SkillsCatalog:
         if not skill:
             return f"Skill not found: {skill_id}"
 
-        skill_dir = (self._repo_root / skill.path).resolve()
+        skill_path = Path(skill["path"])
+        skill_dir = (
+            skill_path.resolve()
+            if skill_path.is_absolute()
+            else (self._repo_root / skill_path).resolve()
+        )
         allowed_root = self._skills_root.resolve()
         if allowed_root not in skill_dir.parents and skill_dir != allowed_root:
-            return f"Skill path is outside allowed skills root: {skill.id}"
+            return f"Skill path is outside allowed skills root: {skill['id']}"
         markdown_path = skill_dir / "SKILL.md"
 
         if not markdown_path.exists():
             return (
-                f"Skill metadata exists for '{skill.id}' but no SKILL.md was found "
+                f"Skill metadata exists for '{skill['id']}' but no SKILL.md was found "
                 f"at {markdown_path}."
             )
 
         try:
             content = markdown_path.read_text(encoding="utf-8")
         except OSError as exc:
-            return f"Failed to read SKILL.md for '{skill.id}': {exc}"
+            return f"Failed to read SKILL.md for '{skill['id']}': {exc}"
 
         if len(content) > 12000:
             return (
@@ -131,14 +208,14 @@ class SkillsCatalog:
         preview_skills = self.search(limit=safe_max)
         lines = [
             "You can use local repository skills as optional tools.",
-            f"A total of {self.total_skills()} skills are available in skills_index.json.",
+            f"A total of {self.total_skills()} local skills are available.",
             "When a specialized workflow is needed, first call `search_skills`, then call",
             "`read_skill` with the selected `skill_id`, and follow the retrieved guidance.",
             "Skill preview (id - description):",
         ]
         for skill in preview_skills:
-            description = skill.description or "No description provided."
-            lines.append(f"- {skill.id} - {description}")
+            description = skill["description"] or "No description provided."
+            lines.append(f"- {skill['id']} - {description}")
         return "\n".join(lines)
 
     def tool_schemas(self) -> list[dict[str, Any]]:
@@ -146,9 +223,7 @@ class SkillsCatalog:
             {
                 "type": "function",
                 "name": "search_skills",
-                "description": (
-                    "Search available local skills from skills_index.json by query."
-                ),
+                "description": "Search available local skills by query.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -196,12 +271,12 @@ class SkillsCatalog:
             limit = raw_limit if isinstance(raw_limit, int) else 10
             results = [
                 {
-                    "id": item.id,
-                    "name": item.name,
-                    "description": item.description,
-                    "category": item.category,
-                    "risk": item.risk,
-                    "source": item.source,
+                    "id": item["id"],
+                    "name": item["name"],
+                    "description": item["description"],
+                    "category": item["category"],
+                    "risk": item["risk"],
+                    "source": item["source"],
                 }
                 for item in self.search(query=query, limit=limit)
             ]

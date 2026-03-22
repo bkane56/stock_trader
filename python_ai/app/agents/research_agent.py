@@ -36,6 +36,7 @@ class AgentIdentity:
 
 class ResearchAgent(FunctionalToolProvider):
     """Research tool surface used by the OpenAI tool loop in pipeline.service."""
+    _LOCAL_SKILL_TOOL_NAMES = {"search_skills", "read_skill"}
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -80,7 +81,8 @@ class ResearchAgent(FunctionalToolProvider):
         delegate_tools = [
             tool
             for tool in self._advisor_delegate.tool_schemas()
-            if tool.get("name") != "run_market_research"
+            if tool.get("name")
+            not in {"run_market_research", *self._LOCAL_SKILL_TOOL_NAMES}
         ]
         return [
             self._general_market_news_digest_tool_schema(),
@@ -88,9 +90,13 @@ class ResearchAgent(FunctionalToolProvider):
             self._news_tool_schema(),
             self._sector_tool_schema(),
             *delegate_tools,
+            *self._skills.tool_schemas(),
         ]
 
     def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+        if tool_name in self._LOCAL_SKILL_TOOL_NAMES:
+            return self._skills.execute_tool(tool_name=tool_name, arguments=arguments)
+
         if tool_name == "search_investment_news":
             query = str(arguments.get("query", "")).strip()
             holdings = [

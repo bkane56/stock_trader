@@ -36,6 +36,7 @@ def test_health_details_endpoint() -> None:
     assert payload["openai_api_key_configured"] in {"yes", "no"}
     assert payload["serper_api_key_configured"] in {"yes", "no"}
     assert "research_min_buy_confidence" in payload
+    assert "morning_briefing_cash_reserve_ratio" in payload
     assert "configured_advisor_tools" in payload
     assert isinstance(payload["configured_advisor_tools"], list)
     assert "run_market_research" in payload["configured_advisor_tools"]

@@ -17,14 +17,15 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     PIPELINE_INTERVAL_MINUTES: int = 60
     MORNING_BRIEFING_MIN_CASH: float = 1000.0
+    MORNING_BRIEFING_CASH_RESERVE_RATIO: float = 0.10
     MORNING_BRIEFING_DEFAULT_HOLDINGS: str = "SPY,QQQ,AAPL"
     MORNING_BRIEFING_DEFAULT_CASH: float = 10000.0
 
     AI_PROVIDER: str = "openai"
     AI_MODEL: str = "gpt-4.2"
     AI_SYSTEM_PROMPT: str = ""
-    AI_SKILLS_INDEX_PATH: str = "skills_index.json"
-    AI_SKILLS_ROOT_PATH: str = "skills"
+    AI_SKILLS_INDEX_PATH: str = ".agents/skills/skills_index.json"
+    AI_SKILLS_ROOT_PATH: str = ".agents/skills"
     AI_SKILLS_PROMPT_LIMIT: int = 15
     RESEARCH_MIN_BUY_CONFIDENCE: float = 0.6
     OPENAI_MODEL: str = ""
@@ -73,6 +74,10 @@ class Settings(BaseSettings):
     def resolved_research_min_buy_confidence(self) -> float:
         # Clamp to [0.0, 1.0] to keep validation predictable.
         return max(0.0, min(1.0, float(self.RESEARCH_MIN_BUY_CONFIDENCE)))
+
+    def resolved_morning_briefing_cash_reserve_ratio(self) -> float:
+        # Clamp to [0.0, 1.0] to keep allocation math safe.
+        return max(0.0, min(1.0, float(self.MORNING_BRIEFING_CASH_RESERVE_RATIO)))
 
     def resolved_cors_allow_origins(self) -> list[str]:
         return [

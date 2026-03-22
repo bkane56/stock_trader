@@ -15,6 +15,7 @@ Default agent configuration is OpenAI-first:
 - `AI_SKILLS_ROOT_PATH=skills` (optional override)
 - `AI_SKILLS_PROMPT_LIMIT=15` (optional override)
 - `RESEARCH_MIN_BUY_CONFIDENCE=0.60` (filters `top_3_buys`; excludes lower confidence)
+- `MORNING_BRIEFING_CASH_RESERVE_RATIO=0.10` (keeps a fixed reserve before cash deployment ideas)
 
 Default prompt text lives in `app/agents/prompts.py` as
 `DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT` and

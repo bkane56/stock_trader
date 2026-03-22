@@ -3,6 +3,7 @@ import { ArrowDownCircle, ArrowUpCircle, Wallet, Plus } from "lucide-react";
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
+import { getTradingMode } from "../lib/tradingModes";
 
 export function Portfolio({
   holdings,
@@ -12,7 +13,9 @@ export function Portfolio({
   openAddPurchaseModal,
   openCashModal,
   morningBriefing,
+  tradingMode,
 }) {
+  const activeTradingMode = getTradingMode(tradingMode);
   const actionsBySymbol = new Map(
     (morningBriefing?.holdings_actions || []).map((item) => [item.symbol, item]),
   );
@@ -32,6 +35,11 @@ export function Portfolio({
           <p className="text-slate-500 font-medium mt-2">
             Comprehensive view of your AI-optimized investment positions.
           </p>
+          <div className="mt-3">
+            <Badge variant={activeTradingMode.id === "autonomous_agent" ? "warning" : "info"}>
+              MODE: {activeTradingMode.label.toUpperCase()}
+            </Badge>
+          </div>
         </div>
         <GlassCard className="min-w-[300px] p-6">
           <div className="flex items-center justify-between mb-3">

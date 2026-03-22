@@ -12,36 +12,19 @@ def _write_text(path: Path, content: str) -> None:
 
 
 def test_skills_catalog_search_and_read(tmp_path: Path) -> None:
-    index = [
-        {
-            "id": "financial-risk-analysis",
-            "name": "financial-risk-analysis",
-            "description": "Risk framework for portfolio drawdown management.",
-            "path": "skills/financial-risk-analysis",
-            "category": "finance",
-            "risk": "safe",
-            "source": "test",
-        },
-        {
-            "id": "generic-research",
-            "name": "generic-research",
-            "description": "General research workflow.",
-            "path": "skills/generic-research",
-            "category": "general",
-            "risk": "safe",
-            "source": "test",
-        },
-    ]
-    _write_text(tmp_path / "skills_index.json", json.dumps(index))
     _write_text(
-        tmp_path / "skills" / "financial-risk-analysis" / "SKILL.md",
+        tmp_path / ".agents" / "skills" / "financial-risk-analysis" / "SKILL.md",
         "# Financial Risk Analysis\nUse strict stop-loss planning.",
+    )
+    _write_text(
+        tmp_path / ".agents" / "skills" / "generic-research" / "SKILL.md",
+        "# Generic Research\nGeneral research workflow.",
     )
 
     catalog = SkillsCatalog(repo_root=tmp_path)
     search_results = catalog.search(query="risk", limit=5)
     assert len(search_results) == 1
-    assert search_results[0].id == "financial-risk-analysis"
+    assert search_results[0]["id"] == "financial-risk-analysis"
 
     markdown = catalog.read_skill_markdown("financial-risk-analysis")
     assert "stop-loss" in markdown
@@ -54,26 +37,14 @@ def test_skills_catalog_search_and_read(tmp_path: Path) -> None:
 
 
 def test_financial_advisor_prompt_includes_skills_preview(tmp_path: Path) -> None:
-    index = [
-        {
-            "id": "volatility-planning",
-            "name": "volatility-planning",
-            "description": "Handles high-volatility position sizing.",
-            "path": "skills/volatility-planning",
-            "category": "finance",
-            "risk": "safe",
-            "source": "test",
-        }
-    ]
-    _write_text(tmp_path / "skills_index.json", json.dumps(index))
     _write_text(
-        tmp_path / "skills" / "volatility-planning" / "SKILL.md",
+        tmp_path / ".agents" / "skills" / "volatility-planning" / "SKILL.md",
         "# Volatility Planning\nAdjust position size during volatility spikes.",
     )
 
     settings = Settings(
-        AI_SKILLS_INDEX_PATH=str(tmp_path / "skills_index.json"),
-        AI_SKILLS_ROOT_PATH=str(tmp_path / "skills"),
+        AI_SKILLS_INDEX_PATH=str(tmp_path / ".agents" / "skills" / "skills_index.json"),
+        AI_SKILLS_ROOT_PATH=str(tmp_path / ".agents" / "skills"),
         AI_SKILLS_PROMPT_LIMIT=5,
     )
     agent = FinancialAdvisorAgent(settings=settings)
@@ -82,4 +53,4 @@ def test_financial_advisor_prompt_includes_skills_preview(tmp_path: Path) -> Non
     assert "search_skills" in prompt
     assert "read_skill" in prompt
     assert "volatility-planning" in prompt
-    assert "A total of 1 skills are available" in prompt
+    assert "A total of 1 local skills are available" in prompt

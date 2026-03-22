@@ -25,21 +25,25 @@ import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { MobileNav } from "./components/MobileNav";
 import { InstantMagicCodeLogin } from "./components/InstantMagicCodeLogin";
+import { getTradingMode, persistTradingMode, TRADING_MODES } from "./lib/tradingModes";
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
-import { fetchLatestMorningBriefing } from "./services/briefings";
+import { fetchLatestMorningBriefing, generateMorningBriefing } from "./services/briefings";
+import { fetchSymbolQuote } from "./services/marketData";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
 import { instantDb, isInstantDbEnabled } from "./services/instantdb/client";
 import {
   adjustCashReserve,
   buildPortfolioState,
   ensurePortfolioForUser,
+  ensurePortfolioOwnershipLink,
   executeTrade,
   pickPortfolioData,
   pickUserPortfolio,
   persistStrategySplit,
   resolveDisplayUser,
+  seedPortfolioDefaultsIfEmpty,
 } from "./services/instantdb/portfolioStore";
 
 const TradeModal = lazy(() =>
@@ -72,12 +76,16 @@ export default function App() {
     cashModalMode,
     selectedStock,
     showAllTransactions,
+    tradingMode,
+    recommendationDecisions,
+    recommendationOrderStatus,
   } = useSelector((state) => state.trade);
   const {
     transactions,
     holdings,
     cash,
     portfolioId,
+    isHydrated,
     strategyGrowthPct,
     strategyFixedPct,
     isSyncing,
@@ -88,6 +96,8 @@ export default function App() {
     [holdings, cash]
   );
   const totalValue = metrics.totalValue;
+  const activeTradingMode = useMemo(() => getTradingMode(tradingMode), [tradingMode]);
+  const isAutonomousMode = activeTradingMode.id === "autonomous_agent";
 
   const authState = isInstantDbEnabled
     ? instantDb.useAuth()
@@ -104,6 +114,9 @@ export default function App() {
   const [briefingError, setBriefingError] = useState("");
   const strategySaveTimer = useRef(null);
   const portfolioBootstrapRef = useRef(new Set());
+  const portfolioSeedRef = useRef(new Set());
+  const portfolioOwnerLinkRef = useRef(new Set());
+  const briefingRequestKeyRef = useRef("");
 
   const userProfileRecord = useMemo(() => {
     if (!portfolioQuery?.data || !signedInUser) return null;
@@ -123,6 +136,41 @@ export default function App() {
     [signedInUser, userProfileRecord]
   );
 
+  const activePortfolioRecord = useMemo(() => {
+    if (!portfolioQuery?.data || !signedInUser) return null;
+    if (portfolioId) {
+      const byId =
+        portfolioQuery.data.portfolios?.find((portfolio) => portfolio.id === portfolioId) ||
+        null;
+      if (byId) return byId;
+    }
+    const byUser = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    if (byUser) return byUser;
+
+    const visiblePortfolios = portfolioQuery.data.portfolios || [];
+    if (!visiblePortfolios.length) return null;
+    if (visiblePortfolios.length === 1) return visiblePortfolios[0];
+
+    // Prefer portfolios with holdings/events so we don't accidentally switch to a sparse record.
+    const positionCounts = (portfolioQuery.data.positions || []).reduce((acc, position) => {
+      acc[position.portfolioId] = (acc[position.portfolioId] || 0) + 1;
+      return acc;
+    }, {});
+    const eventCounts = (portfolioQuery.data.portfolio_events || []).reduce((acc, event) => {
+      acc[event.portfolioId] = (acc[event.portfolioId] || 0) + 1;
+      return acc;
+    }, {});
+
+    const ranked = [...visiblePortfolios].sort((a, b) => {
+      const byPositions = (positionCounts[b.id] || 0) - (positionCounts[a.id] || 0);
+      if (byPositions !== 0) return byPositions;
+      const byEvents = (eventCounts[b.id] || 0) - (eventCounts[a.id] || 0);
+      if (byEvents !== 0) return byEvents;
+      return (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
+    });
+    return ranked[0] || null;
+  }, [portfolioId, portfolioQuery?.data, signedInUser]);
+
   useEffect(() => {
     return () => {
       if (strategySaveTimer.current) {
@@ -133,18 +181,54 @@ export default function App() {
 
   useEffect(() => {
     let isCancelled = false;
+    if (isInstantDbEnabled && !isHydrated) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    const symbols = Array.from(
+      new Set(
+        holdings
+          .map((holding) => String(holding.symbol || "").trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ).sort();
+    const requestKey = `${symbols.join(",")}::${Number(cash || 0).toFixed(2)}`;
+    if (briefingRequestKeyRef.current === requestKey && morningBriefing) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    briefingRequestKeyRef.current = requestKey;
     setIsBriefingLoading(true);
-    fetchLatestMorningBriefing()
+    generateMorningBriefing({
+      holdings: symbols,
+      cashAvailable: cash,
+      persist: false,
+      focus: "portfolio holdings actions and cash deployment options",
+    })
       .then((payload) => {
         if (isCancelled) return;
         setMorningBriefing(payload);
         setBriefingError("");
       })
-      .catch(() => {
+      .catch(async () => {
         if (isCancelled) return;
-        setBriefingError(
-          "Morning briefing unavailable. Showing local holdings data only.",
-        );
+        try {
+          const fallbackPayload = await fetchLatestMorningBriefing();
+          if (isCancelled) return;
+          setMorningBriefing(fallbackPayload);
+          setBriefingError(
+            "Live briefing unavailable. Showing latest saved briefing snapshot.",
+          );
+        } catch {
+          if (isCancelled) return;
+          setBriefingError(
+            "Morning briefing unavailable. Showing local holdings data only.",
+          );
+        }
       })
       .finally(() => {
         if (isCancelled) return;
@@ -154,7 +238,7 @@ export default function App() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [cash, holdings, isHydrated, isInstantDbEnabled, morningBriefing]);
 
   useEffect(() => {
     if (
@@ -167,8 +251,8 @@ export default function App() {
       return;
     }
 
-    const existingPortfolio = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
-    if (existingPortfolio || portfolioBootstrapRef.current.has(signedInUser.id)) {
+    const visiblePortfolios = portfolioQuery.data.portfolios || [];
+    if (visiblePortfolios.length || portfolioBootstrapRef.current.has(signedInUser.id)) {
       return;
     }
 
@@ -193,6 +277,76 @@ export default function App() {
     portfolioQuery.error,
     portfolioQuery.isLoading,
     signedInUser,
+    activePortfolioRecord,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      portfolioQuery.error ||
+      !portfolioQuery.data ||
+      !activePortfolioRecord
+    ) {
+      return;
+    }
+
+    const { positions, events } = pickPortfolioData(
+      portfolioQuery.data,
+      activePortfolioRecord.id
+    );
+    if (positions.length > 0) return;
+    if (events.some((event) => event.eventType === "BUY" || event.eventType === "SELL")) return;
+    if (portfolioSeedRef.current.has(activePortfolioRecord.id)) return;
+
+    portfolioSeedRef.current.add(activePortfolioRecord.id);
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    seedPortfolioDefaultsIfEmpty(activePortfolioRecord.id, positions, events)
+      .then(() => {
+        dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      })
+      .catch((error) => {
+        portfolioSeedRef.current.delete(activePortfolioRecord.id);
+        dispatch({
+          type: "SET_PORTFOLIO_SYNC_ERROR",
+          payload: error?.message || "Failed to seed default portfolio holdings.",
+        });
+      })
+      .finally(() => {
+        dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+      });
+  }, [
+    activePortfolioRecord,
+    dispatch,
+    portfolioQuery.data,
+    portfolioQuery.error,
+    portfolioQuery.isLoading,
+    signedInUser,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      portfolioQuery.error ||
+      !activePortfolioRecord
+    ) {
+      return;
+    }
+    if (portfolioOwnerLinkRef.current.has(activePortfolioRecord.id)) {
+      return;
+    }
+    portfolioOwnerLinkRef.current.add(activePortfolioRecord.id);
+    ensurePortfolioOwnershipLink(activePortfolioRecord.id, signedInUser.id).catch(() => {
+      portfolioOwnerLinkRef.current.delete(activePortfolioRecord.id);
+    });
+  }, [
+    activePortfolioRecord,
+    portfolioQuery.error,
+    portfolioQuery.isLoading,
+    signedInUser,
   ]);
 
   useEffect(() => {
@@ -206,7 +360,7 @@ export default function App() {
       return;
     }
 
-    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    const portfolioRecord = activePortfolioRecord;
     if (!portfolioRecord) return;
 
     const { positions, events } = pickPortfolioData(
@@ -222,13 +376,30 @@ export default function App() {
     portfolioQuery.error,
     portfolioQuery.isLoading,
     signedInUser,
+    activePortfolioRecord,
   ]);
 
   const openTradeModal = (holding) => {
+    if (isAutonomousMode) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload:
+          "Autonomous mode is active. Manual trading controls are disabled while agents execute.",
+      });
+      return;
+    }
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
     dispatch({ type: "SET_SELECTED_STOCK", payload: holding });
   };
   const openAddPurchaseModal = () => {
+    if (isAutonomousMode) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload:
+          "Autonomous mode is active. Manual trading controls are disabled while agents execute.",
+      });
+      return;
+    }
     dispatch({ type: "SET_TRADE_MODAL_OPEN", payload: true });
     dispatch({ type: "SET_SELECTED_STOCK", payload: null });
   };
@@ -265,25 +436,126 @@ export default function App() {
   };
   const toggleShowAllTransactions = () =>
     dispatch({ type: "TOGGLE_SHOW_ALL_TRANSACTIONS" });
+  const handleTradingModeChange = (nextMode) => {
+    persistTradingMode(nextMode);
+    dispatch({ type: "SET_TRADING_MODE", payload: nextMode });
+  };
+  const handleRecommendationDecision = async ({ key, decision, recommendation }) => {
+    dispatch({
+      type: "SET_RECOMMENDATION_DECISION",
+      payload: { key, decision },
+    });
 
-  const handleExecuteTrade = async (action) => {
-    if (
-      !isInstantDbEnabled ||
-      !signedInUser ||
-      portfolioQuery.isLoading ||
-      !portfolioQuery.data
-    ) {
-      dispatch(action);
+    if (decision !== "accepted" || activeTradingMode.id !== "assisted_agent") {
       return;
     }
 
-    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    const symbol = String(recommendation?.symbol || "").trim().toUpperCase();
+    if (!symbol) {
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_STATUS",
+        payload: { key, status: "failed" },
+      });
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: "Unable to place recommendation order: missing ticker symbol.",
+      });
+      return;
+    }
+
+    const suggestedAmount = Number(recommendation?.suggested_amount) || 0;
+    const budget = Math.min(Math.max(0, suggestedAmount), cash);
+    if (budget <= 0) {
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_STATUS",
+        payload: { key, status: "failed" },
+      });
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: `No cash available to place ${symbol} recommendation order.`,
+      });
+      return;
+    }
+
+    try {
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_STATUS",
+        payload: { key, status: "submitting" },
+      });
+      const quote = await fetchSymbolQuote(symbol);
+      const marketPrice = Number(quote?.price) || 0;
+      const previousClose = Number(quote?.previous_close) || 0;
+      const isWeekend = [0, 6].includes(new Date().getDay());
+      const executionPrice = isWeekend
+        ? previousClose || marketPrice
+        : marketPrice || previousClose;
+
+      if (!executionPrice || executionPrice <= 0) {
+        throw new Error(`Price unavailable for ${symbol}.`);
+      }
+
+      const rawShares = budget / executionPrice;
+      const shares = Number(rawShares.toFixed(4));
+      if (!shares || shares <= 0) {
+        throw new Error(`Calculated share size is too small for ${symbol}.`);
+      }
+
+      const orderPlaced = await handleExecuteTrade({
+        type: "BUY_ADD_HOLDING",
+        payload: {
+          symbol,
+          name: String(quote?.name || symbol),
+          sector: String(recommendation?.sector || "Other"),
+          price: executionPrice,
+          shares,
+        },
+      });
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_STATUS",
+        payload: { key, status: orderPlaced ? "submitted" : "failed" },
+      });
+    } catch (error) {
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_STATUS",
+        payload: { key, status: "failed" },
+      });
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload:
+          error?.message ||
+          `Unable to execute accepted recommendation for ${symbol}.`,
+      });
+    }
+  };
+
+  const handleExecuteTrade = async (action) => {
+    if (isAutonomousMode) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload:
+          "Autonomous mode is active. Manual trade execution is disabled while agents run.",
+      });
+      return false;
+    }
+    if (!isInstantDbEnabled) {
+      dispatch(action);
+      return true;
+    }
+    if (!signedInUser || portfolioQuery.isLoading || !portfolioQuery.data) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: "Portfolio not ready yet. Please retry in a moment.",
+      });
+      return false;
+    }
+
+    const portfolioRecord = activePortfolioRecord;
     if (!portfolioRecord) {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
         payload: "Portfolio not ready yet. Please retry in a moment.",
       });
-      return;
+      return false;
     }
 
     const { positions } = pickPortfolioData(portfolioQuery.data, portfolioRecord.id);
@@ -297,11 +569,13 @@ export default function App() {
         ...action.payload,
       });
       dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      return true;
     } catch (error) {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
         payload: error?.message || "Unable to execute trade in InstantDB.",
       });
+      return false;
     } finally {
       dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
     }
@@ -320,7 +594,7 @@ export default function App() {
       return;
     }
 
-    const portfolioRecord = pickUserPortfolio(portfolioQuery.data, signedInUser.id);
+    const portfolioRecord = activePortfolioRecord;
     if (!portfolioRecord) {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
@@ -415,6 +689,22 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-6">
+              <div className="hidden lg:flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Mode
+                </span>
+                <select
+                  value={activeTradingMode.id}
+                  onChange={(event) => handleTradingModeChange(event.target.value)}
+                  className="border-none bg-transparent text-[11px] font-black uppercase tracking-widest text-slate-700 focus:outline-none"
+                >
+                  {TRADING_MODES.map((modeOption) => (
+                    <option key={modeOption.id} value={modeOption.id}>
+                      {modeOption.shortLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="hidden sm:flex items-center gap-4 text-slate-400">
                 <Search
                   size={20}
@@ -475,7 +765,8 @@ export default function App() {
                   transactions={transactions}
                   showAllTransactions={showAllTransactions}
                   toggleShowAllTransactions={toggleShowAllTransactions}
-                  goToStrategy={() => navigate("/strategy")}
+                  goToPortfolio={() => navigate("/portfolio")}
+                  openCashModal={openCashModal}
                   holdings={holdings}
                   cash={cash}
                   investedAmount={metrics.investedAmount}
@@ -486,6 +777,11 @@ export default function App() {
                   morningBriefing={morningBriefing}
                   isBriefingLoading={isBriefingLoading}
                   briefingError={briefingError}
+                  tradingMode={activeTradingMode.id}
+                  onTradingModeChange={handleTradingModeChange}
+                  recommendationDecisions={recommendationDecisions}
+                  recommendationOrderStatus={recommendationOrderStatus}
+                  onRecommendationDecision={handleRecommendationDecision}
                 />
               }
             />
@@ -500,6 +796,7 @@ export default function App() {
                   openAddPurchaseModal={openAddPurchaseModal}
                   openCashModal={openCashModal}
                   morningBriefing={morningBriefing}
+                  tradingMode={activeTradingMode.id}
                 />
               }
             />
@@ -566,6 +863,8 @@ export default function App() {
               holding={selectedStock}
               cash={cash}
               holdings={holdings}
+              morningBriefing={morningBriefing}
+              tradingMode={activeTradingMode.id}
               onExecuteTrade={handleExecuteTrade}
             />
           </Suspense>

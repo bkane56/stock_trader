@@ -1,5 +1,7 @@
 import React from "react";
 import {
+  ArrowDownCircle,
+  ArrowUpCircle,
   TrendingUp,
   Wallet,
   ArrowUpRight,
@@ -9,6 +11,8 @@ import {
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
+import { TradingModeSelector } from "../components/TradingModeSelector";
+import { getTradingMode } from "../lib/tradingModes";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -22,7 +26,7 @@ export function Dashboard({
   transactions,
   showAllTransactions,
   toggleShowAllTransactions,
-  goToStrategy,
+  goToPortfolio,
   holdings,
   cash,
   investedAmount,
@@ -33,17 +37,33 @@ export function Dashboard({
   morningBriefing,
   isBriefingLoading,
   briefingError,
+  openCashModal,
+  tradingMode,
+  onTradingModeChange,
+  recommendationDecisions,
+  recommendationOrderStatus,
+  onRecommendationDecision,
 }) {
+  const activeTradingMode = getTradingMode(tradingMode);
+  const isAssistedMode = activeTradingMode.id === "assisted_agent";
+  const holdingSymbols = new Set(
+    (holdings || []).map((holding) => String(holding.symbol || "").toUpperCase())
+  );
   const visibleTransactions = showAllTransactions
     ? transactions
     : transactions.slice(0, 3);
   const deploymentPct =
     totalValue > 0 ? Math.min(100, (investedAmount / totalValue) * 100) : 0;
-  const topActions = (morningBriefing?.holdings_actions || []).slice(0, 3);
+  const topActions = (morningBriefing?.holdings_actions || [])
+    .filter((item) => holdingSymbols.has(String(item.symbol || "").toUpperCase()))
+    .slice(0, 3);
   const topDeployIdeas = (morningBriefing?.cash_deployment_options || []).slice(
     0,
     3,
   );
+  const topHoldings = [...holdings]
+    .sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0))
+    .slice(0, 6);
   const generatedAt = morningBriefing?.generated_at
     ? new Date(morningBriefing.generated_at).toLocaleString()
     : "";
@@ -68,6 +88,27 @@ export function Dashboard({
           today.
         </p>
       </header>
+
+      <GlassCard className="p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+              Trading Automation Mode
+            </p>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              {activeTradingMode.description}
+            </p>
+          </div>
+          <Badge variant={activeTradingMode.id === "autonomous_agent" ? "warning" : "info"}>
+            {activeTradingMode.label.toUpperCase()}
+          </Badge>
+        </div>
+        <TradingModeSelector
+          value={activeTradingMode.id}
+          onChange={onTradingModeChange}
+          showDescriptions={true}
+        />
+      </GlassCard>
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -135,87 +176,95 @@ export function Dashboard({
             <p className="text-sm font-bold text-slate-400">
               Ready for deployment
             </p>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                onClick={() => openCashModal("deposit")}
+                className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ArrowUpCircle size={14} />
+                Add Cash
+              </button>
+              <button
+                onClick={() => openCashModal("withdraw")}
+                className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <ArrowDownCircle size={14} />
+                Withdraw
+              </button>
+            </div>
           </div>
         </GlassCard>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Strategy Overview */}
+        {/* Holdings Snapshot */}
         <GlassCard className="lg:col-span-2 p-8">
           <div className="flex items-center justify-between mb-10">
             <div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                Strategy Overview
+                Holdings Snapshot
               </h2>
               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                Current AI rebalancing:{" "}
-                {strategyGrowthPct >= 60 ? "Growth Tilt" : "Fixed Tilt"}
+                Top live positions by current value
               </p>
             </div>
             <button
-              onClick={goToStrategy}
+              onClick={goToPortfolio}
               className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
             >
-              Modify Strategy
+              View Portfolio
             </button>
           </div>
 
-          <div className="space-y-8">
-            <div className="space-y-3">
-              <div className="flex justify-between items-end">
-                <Badge variant="info">FIXED INCOME</Badge>
-                <span className="text-sm font-black text-slate-900">
-                  {strategyFixedPct}%
-                </span>
-              </div>
-              <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${strategyFixedPct}%` }}
-                  className="h-full bg-teal-500 rounded-full"
-                />
-              </div>
+          {topHoldings.length ? (
+            <div className="rounded-2xl border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/60">
+                    <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Symbol
+                    </th>
+                    <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Name
+                    </th>
+                    <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">
+                      Shares
+                    </th>
+                    <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">
+                      Value
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {topHoldings.map((holding) => (
+                    <tr key={holding.symbol} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-4 text-sm font-black text-slate-900">
+                        {holding.symbol}
+                      </td>
+                      <td className="px-5 py-4 text-sm font-bold text-slate-600">
+                        {holding.name}
+                      </td>
+                      <td className="px-5 py-4 text-sm font-bold text-slate-500 text-right">
+                        {Number(holding.shares).toFixed(2)}
+                      </td>
+                      <td className="px-5 py-4 text-sm font-black text-slate-900 text-right">
+                        $
+                        {(Number(holding.totalValue) || 0).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            <div className="space-y-3">
-              <div className="flex justify-between items-end">
-                <Badge variant="info">GROWTH EQUITY</Badge>
-                <span className="text-sm font-black text-slate-900">
-                  {strategyGrowthPct}%
-                </span>
-              </div>
-              <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${strategyGrowthPct}%` }}
-                  className="h-full bg-blue-500 rounded-full"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-12">
-            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                Risk Profile
-              </h3>
-              <p className="text-xl font-black text-slate-900">
-                {strategyGrowthPct >= 80
-                  ? "Aggressive"
-                  : strategyGrowthPct >= 60
-                    ? "Moderate-High"
-                    : strategyGrowthPct >= 40
-                      ? "Moderate"
-                      : "Conservative"}
+          ) : (
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-10 text-center">
+              <p className="text-sm font-bold text-slate-500">
+                No holdings yet. Start by placing your first trade.
               </p>
             </div>
-            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                Target Yield
-              </h3>
-              <p className="text-xl font-black text-slate-900">9.5% p.a.</p>
-            </div>
-          </div>
+          )}
         </GlassCard>
 
         {/* Morning Briefing */}
@@ -287,12 +336,63 @@ export function Dashboard({
                   <div className="space-y-2">
                     {topDeployIdeas.length ? (
                       topDeployIdeas.map((item) => (
-                        <p
+                        <div
                           key={`${item.symbol}-${item.entry_style}`}
-                          className="text-xs font-medium text-slate-600 leading-relaxed"
+                          className="rounded-xl border border-slate-200 bg-white p-3"
                         >
-                          {item.symbol} ({item.entry_style}) - {item.thesis}
-                        </p>
+                          <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                            {item.symbol} ({item.entry_style}) - {item.thesis}
+                          </p>
+                          {isAssistedMode ? (
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() =>
+                                    onRecommendationDecision?.({
+                                      key: `${item.symbol}:${item.entry_style}`,
+                                      decision: "accepted",
+                                      recommendation: item,
+                                    })
+                                  }
+                                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    onRecommendationDecision?.({
+                                      key: `${item.symbol}:${item.entry_style}`,
+                                      decision: "declined",
+                                      recommendation: item,
+                                    })
+                                  }
+                                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                              {(() => {
+                                const recKey = `${item.symbol}:${item.entry_style}`;
+                                const orderStatus = String(
+                                  recommendationOrderStatus?.[recKey] || "",
+                                ).toLowerCase();
+                                const decision = String(
+                                  recommendationDecisions?.[recKey] || "pending",
+                                ).toUpperCase();
+                                if (orderStatus === "submitting") {
+                                  return <Badge variant="warning">SUBMITTING</Badge>;
+                                }
+                                if (orderStatus === "submitted") {
+                                  return <Badge variant="success">ORDER SUBMITTED</Badge>;
+                                }
+                                if (orderStatus === "failed") {
+                                  return <Badge variant="warning">ORDER FAILED</Badge>;
+                                }
+                                return <Badge variant="info">{decision}</Badge>;
+                              })()}
+                            </div>
+                          ) : null}
+                        </div>
                       ))
                     ) : (
                       <p className="text-xs font-medium text-slate-600 leading-relaxed">

@@ -1,6 +1,7 @@
 from typing import Any
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Query
 
 from app.core.config import get_settings
@@ -26,6 +27,45 @@ router = APIRouter()
 
 def _parse_symbols_csv(raw: str) -> list[str]:
     return [symbol.strip() for symbol in raw.split(",") if symbol.strip()]
+
+
+def _fetch_quote(symbol: str) -> dict[str, Any]:
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("symbol is required")
+
+    response = httpx.get(
+        "https://query1.finance.yahoo.com/v7/finance/quote",
+        params={"symbols": normalized_symbol},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    quote_response = payload.get("quoteResponse", {})
+    records = quote_response.get("result", [])
+    if not isinstance(records, list) or not records:
+        raise ValueError(f"No quote data returned for {normalized_symbol}")
+
+    record = records[0]
+    if not isinstance(record, dict):
+        raise ValueError(f"Invalid quote payload for {normalized_symbol}")
+
+    price = record.get("regularMarketPrice")
+    if not isinstance(price, (float, int)):
+        raise ValueError(f"Price unavailable for {normalized_symbol}")
+
+    previous_close = record.get("regularMarketPreviousClose")
+    previous_close_value = (
+        float(previous_close) if isinstance(previous_close, (float, int)) else None
+    )
+    return {
+        "symbol": str(record.get("symbol", normalized_symbol)).upper(),
+        "name": str(record.get("longName") or record.get("shortName") or normalized_symbol),
+        "price": float(price),
+        "previous_close": previous_close_value,
+        "currency": str(record.get("currency") or "USD"),
+        "source": "yahoo_finance_quote",
+    }
 
 
 @router.get("/health")
@@ -54,6 +94,11 @@ def get_recommendations(
         tools_used=latest_recommendation_tools_used(),
         generated_at=datetime.now(timezone.utc),
     )
+
+
+@router.get("/quotes/{symbol}")
+def get_quote(symbol: str) -> dict[str, Any]:
+    return _fetch_quote(symbol)
 
 
 @router.get("/research", response_model=MarketResearchResponse)

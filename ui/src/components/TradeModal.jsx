@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
+import { fetchSymbolQuote } from "../services/marketData";
 
 export const TradeModal = ({
   isOpen,
@@ -10,12 +11,20 @@ export const TradeModal = ({
   holding,
   cash,
   holdings,
+  morningBriefing,
+  tradingMode,
   onExecuteTrade,
 }) => {
+  const manualTradingDisabled = tradingMode === "autonomous_agent";
   const isAddPurchaseFlow = !holding;
   const [mode, setMode] = useState("buy");
   const [shares, setShares] = useState("0");
   const [selectedSymbol, setSelectedSymbol] = useState("");
+  const [symbolInput, setSymbolInput] = useState("");
+  const [customPrice, setCustomPrice] = useState("");
+  const [lookedUpStock, setLookedUpStock] = useState(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupError, setLookupError] = useState("");
 
   const allStocks = useMemo(() => {
     const heldSymbols = new Set(holdings.map((portfolioStock) => portfolioStock.symbol));
@@ -31,12 +40,44 @@ export const TradeModal = ({
     return [...heldStocks, ...unheldStocks];
   }, [holdings]);
 
+  const aiIdeas = useMemo(
+    () =>
+      (morningBriefing?.cash_deployment_options || [])
+        .slice(0, 5)
+        .map((idea) => ({
+          symbol: String(idea.symbol || "").toUpperCase(),
+          name: idea.symbol || "AI Candidate",
+          sector: idea.sector || "AI Idea",
+          confidence: Number(idea.confidence) || 0,
+        }))
+        .filter((idea) => idea.symbol),
+    [morningBriefing]
+  );
+
+  const stocksBySymbol = useMemo(() => {
+    const map = new Map();
+    allStocks.forEach((stock) => {
+      map.set(stock.symbol.toUpperCase(), stock);
+    });
+    aiIdeas.forEach((idea) => {
+      if (!map.has(idea.symbol)) {
+        map.set(idea.symbol, idea);
+      }
+    });
+    if (lookedUpStock?.symbol) {
+      map.set(lookedUpStock.symbol.toUpperCase(), lookedUpStock);
+    }
+    return map;
+  }, [allStocks, aiIdeas, lookedUpStock]);
+
   const displayStock =
     holding ||
-    allStocks.find((stock) => stock.symbol === selectedSymbol) ||
+    stocksBySymbol.get(selectedSymbol.toUpperCase()) ||
     allStocks[0] ||
     null;
-  const price = displayStock?.price ?? 0;
+  const selectedPrice = Number(displayStock?.price) || 0;
+  const manualPrice = Number(customPrice);
+  const price = Number.isFinite(manualPrice) && manualPrice > 0 ? manualPrice : selectedPrice;
   const owned =
     holdings.find((portfolioStock) => portfolioStock.symbol === displayStock?.symbol)
       ?.shares ?? 0;
@@ -45,9 +86,12 @@ export const TradeModal = ({
   const insufficientCash = mode === "buy" && estimatedTotal > cash;
   const insufficientShares = mode === "sell" && Number(shares) > owned;
   const cannotSellSelectedStock = mode === "sell" && owned <= 0;
+  const missingPrice = !Number(price) || Number(price) <= 0;
   const disablePlaceOrder =
+    manualTradingDisabled ||
     !displayStock ||
     invalidShares ||
+    missingPrice ||
     insufficientCash ||
     insufficientShares ||
     cannotSellSelectedStock;
@@ -57,8 +101,59 @@ export const TradeModal = ({
       setShares("0");
       setMode("buy");
       setSelectedSymbol(holding?.symbol || allStocks[0]?.symbol || "");
+      setSymbolInput(holding?.symbol || allStocks[0]?.symbol || "");
+      setCustomPrice("");
+      setLookedUpStock(null);
+      setLookupError("");
     }
   }, [isOpen, holding, allStocks]);
+
+  useEffect(() => {
+    if (selectedSymbol) {
+      setSymbolInput(selectedSymbol.toUpperCase());
+      const stock = stocksBySymbol.get(selectedSymbol.toUpperCase());
+      if (stock?.price) {
+        setCustomPrice(String(stock.price));
+      }
+    }
+  }, [selectedSymbol, stocksBySymbol]);
+
+  const handleLookup = async () => {
+    const normalized = symbolInput.trim().toUpperCase();
+    if (!normalized) {
+      setLookupError("Enter a ticker symbol to look up.");
+      return;
+    }
+    const existing = stocksBySymbol.get(normalized);
+    if (existing?.price) {
+      setLookupError("");
+      setSelectedSymbol(normalized);
+      setCustomPrice(String(existing.price));
+      return;
+    }
+
+    setIsLookingUp(true);
+    setLookupError("");
+    try {
+      const quote = await fetchSymbolQuote(normalized);
+      const next = {
+        symbol: String(quote.symbol || normalized).toUpperCase(),
+        name: String(quote.name || normalized),
+        sector: "Other",
+        price: Number(quote.price) || 0,
+      };
+      if (!next.price) {
+        throw new Error(`Price unavailable for ${normalized}.`);
+      }
+      setLookedUpStock(next);
+      setSelectedSymbol(next.symbol);
+      setCustomPrice(String(next.price));
+    } catch (error) {
+      setLookupError(error?.message || `Unable to look up ${normalized}.`);
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
 
   const handlePlaceOrder = () => {
     const numShares = Number(shares);
@@ -149,17 +244,62 @@ export const TradeModal = ({
 
           {isAddPurchaseFlow && allStocks.length > 0 && (
             <div className="mb-8">
+              {mode === "buy" && aiIdeas.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[10px] font-black text-teal-600 uppercase tracking-widest mb-2">
+                    AI shortlist
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {aiIdeas.map((idea) => (
+                      <button
+                        key={`ai-${idea.symbol}`}
+                        onClick={() => {
+                          setSelectedSymbol(idea.symbol);
+                          setSymbolInput(idea.symbol);
+                        }}
+                        className="px-3 py-1.5 rounded-full border border-teal-200 bg-teal-50 text-teal-700 text-[10px] font-black uppercase tracking-widest hover:bg-teal-100 transition-colors"
+                      >
+                        {idea.symbol} ({Math.round(idea.confidence * 100)}%)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Enter Ticker
+              </label>
+              <div className="mb-4 flex gap-2">
+                <input
+                  value={symbolInput}
+                  onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+                  placeholder="e.g. AMD"
+                  className="flex-1 rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm font-bold py-3 px-4 uppercase"
+                />
+                <button
+                  onClick={handleLookup}
+                  disabled={isLookingUp}
+                  className="px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors disabled:opacity-60"
+                >
+                  {isLookingUp ? "..." : "Lookup"}
+                </button>
+              </div>
+              {lookupError && (
+                <p className="mb-3 text-xs font-medium text-rose-600">{lookupError}</p>
+              )}
+
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                 Select Stock
               </label>
               <select
-                value={displayStock?.symbol ?? allStocks[0]?.symbol}
+                value={displayStock?.symbol ?? selectedSymbol ?? allStocks[0]?.symbol}
                 onChange={(e) => setSelectedSymbol(e.target.value)}
                 className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm font-bold py-4 px-6"
               >
-                {allStocks.map((stock) => (
+                {Array.from(stocksBySymbol.values()).map((stock) => (
                   <option key={stock.symbol} value={stock.symbol}>
-                    {stock.symbol} - {stock.name} (${stock.price.toFixed(2)})
+                    {stock.symbol} - {stock.name}
+                    {Number(stock.price) > 0 ? ` ($${Number(stock.price).toFixed(2)})` : ""}
                   </option>
                 ))}
               </select>
@@ -178,13 +318,35 @@ export const TradeModal = ({
                       {displayStock.name}
                     </h3>
                     <p className="text-sm font-medium text-slate-500">
-                      ${price.toFixed(2)}
+                      ${Number(price).toFixed(2)}
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-6">
+                {mode === "buy" && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      Price Per Share
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={customPrice}
+                        onChange={(e) => setCustomPrice(e.target.value)}
+                        className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-xl font-bold py-3 pl-12 pr-6 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                     Number of Shares
@@ -239,9 +401,19 @@ export const TradeModal = ({
                     This order exceeds your available cash.
                   </p>
                 )}
+                {mode === "buy" && missingPrice && (
+                  <p className="text-sm font-medium text-rose-600">
+                    Enter a valid price, or use Lookup to fetch one.
+                  </p>
+                )}
                 {mode === "sell" && insufficientShares && owned > 0 && (
                   <p className="text-sm font-medium text-rose-600">
                     You cannot sell more shares than you currently own.
+                  </p>
+                )}
+                {manualTradingDisabled && (
+                  <p className="text-sm font-medium text-amber-700">
+                    Autonomous mode is active. Manual order placement is currently disabled.
                   </p>
                 )}
 

@@ -403,6 +403,7 @@ def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     now = service.datetime.now(service.timezone.utc)
     settings = Settings(
         MORNING_BRIEFING_MIN_CASH=1000.0,
+        MORNING_BRIEFING_CASH_RESERVE_RATIO=0.10,
         OPENAI_API_KEY="",
     )
     monkeypatch.setattr(service, "get_settings", lambda: settings)
@@ -448,6 +449,12 @@ def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     assert output.holdings_actions[0].action == "trim"
     assert len(output.cash_deployment_options) == 1
     assert output.cash_deployment_options[0].symbol == "MSFT"
+    assert output.cash_available == 1500.0
+    assert output.reserve_ratio == 0.10
+    assert output.reserve_cash_target == 150.0
+    assert output.deployable_cash_budget == 1350.0
+    assert output.cash_deployment_options[0].suggested_amount == 1350.0
+    assert output.cash_deployment_options[0].suggested_allocation_pct == 1.0
     assert output.generated_at == now
 
 
@@ -496,6 +503,63 @@ def test_generate_morning_briefing_without_cash_skips_deployment(
     assert len(output.holdings_actions) == 1
     assert output.holdings_actions[0].action == "hold"
     assert output.cash_deployment_options == []
+
+
+def test_generate_morning_briefing_keeps_cash_reserve_and_splits_allocations(
+    monkeypatch: Any,
+) -> None:
+    now = service.datetime.now(service.timezone.utc)
+    settings = Settings(
+        MORNING_BRIEFING_MIN_CASH=1000.0,
+        MORNING_BRIEFING_CASH_RESERVE_RATIO=0.10,
+        OPENAI_API_KEY="",
+    )
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        service,
+        "generate_market_research",
+        lambda holdings, focus: service.MarketResearchResponse(
+            holdings_review=[],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[
+                service.StockIdea(
+                    symbol="NVDA",
+                    sector="Technology",
+                    thesis="AI demand remains resilient.",
+                    risk="Volatility.",
+                    entry_style="pullback",
+                    confidence=0.9,
+                ),
+                service.StockIdea(
+                    symbol="MSFT",
+                    sector="Technology",
+                    thesis="Durable quality growth.",
+                    risk="Multiple compression.",
+                    entry_style="pullback",
+                    confidence=0.6,
+                ),
+            ],
+            do_not_buy=[],
+            macro_summary="Constructive risk backdrop.",
+            generated_at=now,
+        ),
+    )
+
+    output = service.generate_morning_briefing(
+        holdings=[],
+        cash_available=10000.0,
+        focus="",
+    )
+
+    assert output.reserve_cash_target == 1000.0
+    assert output.deployable_cash_budget == 9000.0
+    assert len(output.cash_deployment_options) == 2
+    assert sum(option.suggested_amount for option in output.cash_deployment_options) == 9000.0
+    assert output.cash_deployment_options[0].symbol == "NVDA"
+    assert output.cash_deployment_options[0].suggested_amount == 5400.0
+    assert output.cash_deployment_options[1].symbol == "MSFT"
+    assert output.cash_deployment_options[1].suggested_amount == 3600.0
 
 
 def test_latest_persisted_morning_briefing_returns_none_when_missing(monkeypatch: Any) -> None:
