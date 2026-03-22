@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_LOG_LEVEL: str = "INFO"
     CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Optional regex for origins not listed above (e.g. all Vercel preview URLs).
+    # Example: https://.*\.vercel\.app — use only if you accept that tradeoff.
+    CORS_ALLOW_ORIGIN_REGEX: str = ""
     PIPELINE_INTERVAL_MINUTES: int = 60
     MORNING_BRIEFING_MIN_CASH: float = 1000.0
     MORNING_BRIEFING_CASH_RESERVE_RATIO: float = 0.10

@@ -9,11 +9,14 @@ settings = get_settings()
 configure_app_logging(settings)
 
 app = FastAPI(title=settings.APP_NAME)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.resolved_cors_allow_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_cors_kwargs = {
+    "allow_origins": settings.resolved_cors_allow_origins(),
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+_origin_regex = (settings.CORS_ALLOW_ORIGIN_REGEX or "").strip()
+if _origin_regex:
+    _cors_kwargs["allow_origin_regex"] = _origin_regex
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 app.include_router(api_router)

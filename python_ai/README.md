@@ -56,6 +56,26 @@ The advisor is configured around Polygon free-plan behavior:
 - Approximate rate limit of 5 API calls per minute.
 - Tooling should minimize requests and reuse returned context where possible.
 
+## CORS and the Vercel frontend
+
+The React app calls this API using `VITE_PYTHON_AI_BASE_URL` (defaults to `http://127.0.0.1:8010` for local dev only).
+
+**On Vercel**, set `VITE_PYTHON_AI_BASE_URL` to the **public HTTPS URL** where this FastAPI app is deployed. Do **not** point at `127.0.0.1` — each user’s browser would try to talk to *their own* machine, which is wrong and triggers confusing CORS / network errors.
+
+Allow browser origins with:
+
+| Variable | Purpose |
+|----------|---------|
+| `CORS_ALLOW_ORIGINS` | Comma-separated exact origins, e.g. `https://my-app.vercel.app,http://localhost:3000` |
+| `CORS_ALLOW_ORIGIN_REGEX` | Optional; e.g. `https://.*\.vercel\.app` so every Vercel preview deployment works without listing each URL |
+
+Example for previews + local dev:
+
+```bash
+CORS_ALLOW_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://my-app.vercel.app
+CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
+```
+
 ## Commands
 
 - Install dependencies:

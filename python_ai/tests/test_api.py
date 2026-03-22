@@ -24,6 +24,14 @@ def test_health_endpoint_includes_cors_header_for_ui_origin() -> None:
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
 
+def test_cors_allow_origin_regex_setting_reads_from_env(monkeypatch) -> None:
+    """Documented escape hatch for Vercel preview URLs (see python_ai README)."""
+    from app.core.config import Settings
+
+    monkeypatch.setenv("CORS_ALLOW_ORIGIN_REGEX", r"https://.*\.vercel\.app")
+    assert Settings().CORS_ALLOW_ORIGIN_REGEX == r"https://.*\.vercel\.app"
+
+
 def test_health_details_endpoint() -> None:
     response = client.get("/health/details")
     assert response.status_code == 200

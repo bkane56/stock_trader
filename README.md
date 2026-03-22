@@ -82,17 +82,28 @@ Notes:
 yarn vercel:preview
 ```
 
+This runs `vercel deploy` **without** `--prod`, so it is a **Preview** deployment (uses **Preview** env vars in the dashboard). The script also passes **`--skip-domain`** so Vercel does **not** auto-assign your production domain / alias to this deploy — you get a normal preview URL.
+
+**Why the CLI says “Production”:** Vercel’s output is easy to misread. A line like `Production: https://…vercel.app` often means “here is the main URL for this deployment,” **not** “this used Production environment variables.” Only `vercel deploy --prod` (see below) is a **production** deploy and uses **Production** env vars. Open the **Inspect** link in the CLI output to confirm *Preview* vs *Production* in the dashboard.
+
 ### 4) Deploy production
 
 ```bash
 yarn vercel:prod
 ```
 
+This is `vercel deploy --prod` — promotes to production and uses **Production** env vars.
+
 ### Recommended Vercel Environment Variables
 
 Set these in Vercel for Preview and Production as needed:
 - `VITE_INSTANTDB_APP_ID`
-- `VITE_PYTHON_AI_BASE_URL` (your deployed Python API URL)
+- `VITE_PYTHON_AI_BASE_URL` — **HTTPS URL of your deployed Python API** (e.g. `https://stock-trader-api.fly.dev`).  
+  **Do not** use `http://127.0.0.1:8010` here: in the browser that means “the visitor’s own computer,” not your server, so requests fail or hit CORS.
+
+On the **deployed Python service**, allow your Vercel origins via `CORS_ALLOW_ORIGINS` (production URL) and optionally `CORS_ALLOW_ORIGIN_REGEX` for all `*.vercel.app` previews — see [`python_ai/README.md`](python_ai/README.md#cors-and-the-vercel-frontend).
+
+**If the live site still calls `http://127.0.0.1:8010`:** the bundle was built without `VITE_PYTHON_AI_BASE_URL`. Common causes: (1) the variable is only set for **Production** but you’re on a **Preview** URL — add the same variable under **Preview** in Vercel; (2) you didn’t **Redeploy** after saving env; (3) typo in the name (`VITE_PYTHON_AI_BASE_URL`). After fixing, the build should fail on Vercel if the var is still missing (`VERCEL=1`).
 
 ## InstantDB Setup
 
@@ -107,6 +118,8 @@ Frontend portfolio persistence and authentication use InstantDB.
 ## AI Service (Python 3.12+)
 
 An initial AI service scaffold is available in [`python_ai/`](python_ai/).
+
+**Deploy the API** (Railway, Render, etc.) so Vercel can call it over HTTPS: see [`python_ai/DEPLOY.md`](python_ai/DEPLOY.md).
 
 1. Install Python dependencies with `uv`:
    `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv sync --extra dev`

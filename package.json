@@ -10,8 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "vercel:dev": "npx vercel@48.6.0 dev --listen 3000",
-    "vercel:preview": "npx vercel@48.6.0 --yes",
-    "vercel:prod": "npx vercel@48.6.0 --prod --yes"
+    "vercel:preview": "npx vercel@48.6.0 deploy --yes --skip-domain",
+    "vercel:prod": "npx vercel@48.6.0 deploy --prod --yes"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

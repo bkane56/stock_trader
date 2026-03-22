@@ -1,0 +1,15 @@
+# Keep API image small and avoid leaking local junk
+.git
+.github
+node_modules
+dist
+.vite
+.vercel
+**/.venv
+**/__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+ui
+.agents/skills/**/node_modules
