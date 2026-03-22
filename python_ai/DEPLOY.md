@@ -4,9 +4,11 @@ The UI on Vercel must call a **public HTTPS URL** for this service. You need to 
 
 ## Option A — Railway (good default)
 
+The repo includes **`railway.json` at the monorepo root** so Railway uses **Docker** and **`python_ai/Dockerfile`**, not Railpack/Nixpacks (which often produce a bad start command for this app).
+
 1. Sign up at [railway.app](https://railway.app) (GitHub login is fine).
 2. **New project** → **Deploy from GitHub repo** → pick `stock_trader` (or deploy with **Empty project** → **Dockerfile** if you prefer not to connect GitHub yet).
-3. If using GitHub: set **Root Directory** to **empty** (repo root). Add a service that builds with Docker:
+3. If using GitHub: set **Root Directory** to **empty** (repo root). Do **not** set it to `python_ai` — the Dockerfile’s `COPY python_ai/` and `COPY .agents/` lines assume the build context is the **repository root**. Add a service that builds with Docker:
    - **Settings** → set **Dockerfile path** to `python_ai/Dockerfile` (path relative to repo root).
 4. **Variables** tab — add the same secrets you use locally, at minimum:
    - `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` if you use Anthropic)
