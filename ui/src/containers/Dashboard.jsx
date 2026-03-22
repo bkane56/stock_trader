@@ -29,6 +29,7 @@ export function Dashboard({
   goToPortfolio,
   holdings,
   cash,
+  resetAt,
   investedAmount,
   totalValue,
   strategyGrowthPct,
@@ -42,7 +43,9 @@ export function Dashboard({
   onTradingModeChange,
   recommendationDecisions,
   recommendationOrderStatus,
+  recommendationOrderErrors,
   onRecommendationDecision,
+  onRequestResetPortfolio,
 }) {
   const formatCurrency = (value) =>
     Number(value || 0).toLocaleString(undefined, {
@@ -205,6 +208,17 @@ export function Dashboard({
                 Withdraw
               </button>
             </div>
+            <button
+              onClick={() => onRequestResetPortfolio?.()}
+              className="mt-2 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-100 transition-colors"
+            >
+              Reset Portfolio
+            </button>
+            {resetAt ? (
+              <p className="pt-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 text-center">
+                Reset completed {new Date(resetAt).toLocaleString()}
+              </p>
+            ) : null}
           </div>
         </GlassCard>
       </div>
@@ -347,15 +361,62 @@ export function Dashboard({
                     {topDeployIdeas.length ? (
                       topDeployIdeas.map((item) => {
                         const recKey = item.key || `${item.symbol}:${item.entry_style}`;
+                        const buyLeg = item.buy || item;
+                        const buySymbol = String(buyLeg?.symbol || "").toUpperCase();
+                        const buyName =
+                          String(buyLeg?.name || "").trim() || buySymbol || "Buy Candidate";
+                        const buyReason =
+                          String(
+                            buyLeg?.recommendation_reason ||
+                              buyLeg?.thesis ||
+                              item?.thesis ||
+                              "",
+                          ).trim() || "No buy rationale provided.";
+                        const sellLeg = item.sell_leg || null;
+                        const hasRotation = Boolean(sellLeg?.symbol);
+                        const sellSymbol = String(sellLeg?.symbol || "").toUpperCase();
+                        const sellName =
+                          String(sellLeg?.name || "").trim() || sellSymbol || "Current Holding";
+                        const sellReason = String(sellLeg?.reason || "").trim();
+                        const actionLabel = hasRotation ? "SELL + BUY" : "BUY";
+                        const orderStatus = String(
+                          recommendationOrderStatus?.[recKey] || "",
+                        ).toLowerCase();
+                        const isSubmittingOrder = orderStatus === "submitting";
+                        const suggestedAmount = Number(buyLeg?.suggested_amount) || 0;
+                        const buyAmountHeadline = `Buy ${buyName} (${buySymbol}) with about $${formatCurrency(
+                          suggestedAmount,
+                        )}.`;
+                        const rotationHeadline = hasRotation
+                          ? `Sell ${sellName} (${sellSymbol}) then ${buyAmountHeadline.charAt(
+                              0,
+                            ).toLowerCase()}${buyAmountHeadline.slice(1)}`
+                          : buyAmountHeadline;
                         return (
                           <div
                             key={`${recKey}-${item.entry_style || ""}`}
                             className="rounded-xl border border-slate-200 bg-white p-3"
                           >
-                            <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                              {item.summary ||
-                                `${item.symbol} (${item.entry_style}) - ${item.thesis}`}
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                                {actionLabel}
+                              </p>
+                              <Badge variant={hasRotation ? "warning" : "info"}>
+                                {hasRotation ? "ROTATION" : "NEW BUY"}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-xs font-black text-slate-900">
+                              {rotationHeadline}
                             </p>
+                            <p className="mt-1 text-xs font-medium text-slate-600 leading-relaxed">
+                              Why: {buyReason}
+                            </p>
+                            {hasRotation ? (
+                              <p className="mt-1 text-xs font-medium text-slate-600 leading-relaxed">
+                                Sell rationale: {sellName} ({sellSymbol})
+                                {sellReason ? ` - ${sellReason}` : ""}
+                              </p>
+                            ) : null}
                             {isAssistedMode ? (
                               <div className="mt-2 flex items-center justify-between gap-2">
                                 <div className="flex gap-2">
@@ -385,9 +446,9 @@ export function Dashboard({
                                   </button>
                                 </div>
                                 {(() => {
-                                  const orderStatus = String(
-                                    recommendationOrderStatus?.[recKey] || "",
-                                  ).toLowerCase();
+                                  const orderError = String(
+                                    recommendationOrderErrors?.[recKey] || "",
+                                  ).trim();
                                   const decision = String(
                                     recommendationDecisions?.[recKey] || "pending",
                                   ).toUpperCase();
@@ -400,8 +461,33 @@ export function Dashboard({
                                   if (orderStatus === "failed") {
                                     return <Badge variant="warning">ORDER FAILED</Badge>;
                                   }
+                                  if (orderError) {
+                                    return <Badge variant="warning">ISSUE</Badge>;
+                                  }
                                   return <Badge variant="info">{decision}</Badge>;
                                 })()}
+                              </div>
+                            ) : null}
+                            {isAssistedMode &&
+                            orderStatus === "failed" &&
+                            String(recommendationOrderErrors?.[recKey] || "").trim() ? (
+                              <div className="mt-2 space-y-2">
+                                <p className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] font-medium text-rose-700">
+                                  {String(recommendationOrderErrors?.[recKey] || "").trim()}
+                                </p>
+                                <button
+                                  onClick={() =>
+                                    onRecommendationDecision?.({
+                                      key: recKey,
+                                      decision: "accepted",
+                                      recommendation: item,
+                                    })
+                                  }
+                                  disabled={isSubmittingOrder}
+                                  className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-amber-50"
+                                >
+                                  {isSubmittingOrder ? "Retrying..." : "Retry"}
+                                </button>
                               </div>
                             ) : null}
                           </div>

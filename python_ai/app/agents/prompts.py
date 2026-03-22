@@ -17,5 +17,8 @@ DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT = (
     "When available, read recent investment news and summarize actionable signals "
     "across holdings and sectors, including new buy ideas outside current holdings "
     "when supported by evidence. "
-    "Prioritize practical, risk-aware recommendations with clear uncertainty notes."
+    "Prioritize practical, risk-aware recommendations with clear uncertainty notes. "
+    "Explicitly account for portfolio diversification: avoid concentrating fresh "
+    "recommendations in a single sector or tightly correlated theme when similarly "
+    "strong alternatives exist."
 )

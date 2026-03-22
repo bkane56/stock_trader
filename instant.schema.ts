@@ -21,6 +21,7 @@ const _schema = i.schema({
       cashReserve: i.number(),
       strategyGrowthPct: i.number(),
       strategyFixedPct: i.number(),
+      resetAt: i.date().optional(),
       snapshotTotalValue: i.number().optional(),
       snapshotInvestedAmount: i.number().optional(),
       snapshotAt: i.date().optional(),
@@ -50,6 +51,12 @@ const _schema = i.schema({
       amount: i.number(),
       status: i.string(),
       eventAt: i.date(),
+    }),
+    company_names: i.entity({
+      userId: i.string().indexed(),
+      symbol: i.string().indexed(),
+      name: i.string(),
+      updatedAt: i.date(),
     }),
   },
   links: {

@@ -31,6 +31,7 @@ import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
 import { fetchLatestMorningBriefing, generateMorningBriefing } from "./services/briefings";
 import { fetchSymbolQuote } from "./services/marketData";
+import { registerCompanyNames, resolveCompanyName } from "./lib/companyNames";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
 import { instantDb, isInstantDbEnabled } from "./services/instantdb/client";
 import {
@@ -39,11 +40,14 @@ import {
   ensurePortfolioForUser,
   ensurePortfolioOwnershipLink,
   executeTrade,
+  filterActivePositions,
   pickPortfolioData,
   pickUserPortfolio,
   persistStrategySplit,
+  resetPortfolioToCashReserve,
   resolveDisplayUser,
   seedPortfolioDefaultsIfEmpty,
+  upsertCompanyNamesForUser,
 } from "./services/instantdb/portfolioStore";
 
 const TradeModal = lazy(() =>
@@ -52,6 +56,11 @@ const TradeModal = lazy(() =>
 const CashAdjustmentModal = lazy(() =>
   import("./components/CashAdjustmentModal").then((m) => ({
     default: m.CashAdjustmentModal,
+  }))
+);
+const ResetPortfolioModal = lazy(() =>
+  import("./components/ResetPortfolioModal").then((m) => ({
+    default: m.ResetPortfolioModal,
   }))
 );
 const StrategyBuilder = lazy(() =>
@@ -66,6 +75,7 @@ const INSTANT_PORTFOLIO_QUERY = {
   portfolios: {},
   positions: {},
   portfolio_events: {},
+  company_names: {},
 };
 
 export default function App() {
@@ -79,11 +89,13 @@ export default function App() {
     tradingMode,
     recommendationDecisions,
     recommendationOrderStatus,
+    recommendationOrderErrors,
   } = useSelector((state) => state.trade);
   const {
     transactions,
     holdings,
     cash,
+    resetAt,
     portfolioId,
     isHydrated,
     strategyGrowthPct,
@@ -113,6 +125,7 @@ export default function App() {
   const [isBriefingLoading, setIsBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState("");
   const [isApplyingStrategy, setIsApplyingStrategy] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const portfolioBootstrapRef = useRef(new Set());
   const portfolioSeedRef = useRef(new Set());
   const portfolioOwnerLinkRef = useRef(new Set());
@@ -244,6 +257,39 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (!morningBriefing) return;
+
+    const registrationCandidates = [];
+    const cashIdeas = Array.isArray(morningBriefing?.cash_deployment_options)
+      ? morningBriefing.cash_deployment_options
+      : [];
+    cashIdeas.forEach((idea) => {
+      registrationCandidates.push({ symbol: idea?.symbol, name: idea?.name });
+    });
+
+    const executions = Array.isArray(morningBriefing?.execution_recommendations)
+      ? morningBriefing.execution_recommendations
+      : [];
+    executions.forEach((row) => {
+      const buy = row?.buy || null;
+      const sell = row?.sell_leg || null;
+      if (buy) {
+        registrationCandidates.push({ symbol: buy?.symbol, name: buy?.name });
+      }
+      if (sell) {
+        registrationCandidates.push({ symbol: sell?.symbol, name: sell?.name });
+      }
+    });
+
+    registerCompanyNames(registrationCandidates);
+    if (isInstantDbEnabled && signedInUser?.id) {
+      upsertCompanyNamesForUser(signedInUser.id, registrationCandidates).catch(() => {
+        // Keep recommendation UX resilient even if company-name sync fails.
+      });
+    }
+  }, [isInstantDbEnabled, morningBriefing, signedInUser?.id]);
+
+  useEffect(() => {
     if (
       !isInstantDbEnabled ||
       !signedInUser ||
@@ -370,7 +416,15 @@ export default function App() {
       portfolioQuery.data,
       portfolioRecord.id
     );
-    const nextState = buildPortfolioState(portfolioRecord, positions, events);
+    const companyNameRecords = (portfolioQuery.data.company_names || []).filter(
+      (row) => row.userId === signedInUser.id
+    );
+    const nextState = buildPortfolioState(
+      portfolioRecord,
+      positions,
+      events,
+      companyNameRecords
+    );
     dispatch({ type: "HYDRATE_PORTFOLIO", payload: nextState });
     dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
   }, [
@@ -450,6 +504,14 @@ export default function App() {
       type: "SET_RECOMMENDATION_DECISION",
       payload: { key, decision },
     });
+    dispatch({
+      type: "SET_RECOMMENDATION_ORDER_STATUS",
+      payload: { key, status: "pending" },
+    });
+    dispatch({
+      type: "SET_RECOMMENDATION_ORDER_ERROR",
+      payload: { key, error: "" },
+    });
 
     if (decision !== "accepted" || activeTradingMode.id !== "assisted_agent") {
       return;
@@ -461,6 +523,13 @@ export default function App() {
       dispatch({
         type: "SET_RECOMMENDATION_ORDER_STATUS",
         payload: { key, status: "failed" },
+      });
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_ERROR",
+        payload: {
+          key,
+          error: "Unable to place recommendation order: missing ticker symbol.",
+        },
       });
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
@@ -515,11 +584,15 @@ export default function App() {
         const sellHolding = (holdings || []).find(
           (holding) => String(holding?.symbol || "").toUpperCase() === sellSymbol
         );
+        const resolvedSellName = resolveCompanyName(
+          sellSymbol,
+          sellHolding?.name || sellQuote?.name || sellSymbol
+        );
         const sellPlaced = await handleExecuteTrade({
           type: "SELL_FROM_HOLDING",
           payload: {
             symbol: sellSymbol,
-            name: String(sellHolding?.name || sellQuote?.name || sellSymbol),
+            name: resolvedSellName,
             sector: String(sellHolding?.sector || "Other"),
             price: sellExecutionPrice,
             shares: sellShares,
@@ -561,7 +634,7 @@ export default function App() {
         type: "BUY_ADD_HOLDING",
         payload: {
           symbol,
-          name: String(quote?.name || symbol),
+          name: resolveCompanyName(symbol, quote?.name || symbol),
           sector: String(buyRecommendation?.sector || "Other"),
           price: executionPrice,
           shares,
@@ -572,16 +645,30 @@ export default function App() {
         type: "SET_RECOMMENDATION_ORDER_STATUS",
         payload: { key, status: orderPlaced ? "submitted" : "failed" },
       });
+      dispatch({
+        type: "SET_RECOMMENDATION_ORDER_ERROR",
+        payload: {
+          key,
+          error: orderPlaced
+            ? ""
+            : `Order was rejected while executing ${symbol}. Check the sync error banner for details.`,
+        },
+      });
     } catch (error) {
+      const message =
+        error?.message ||
+        `Unable to execute accepted recommendation for ${symbol}.`;
       dispatch({
         type: "SET_RECOMMENDATION_ORDER_STATUS",
         payload: { key, status: "failed" },
       });
       dispatch({
+        type: "SET_RECOMMENDATION_ORDER_ERROR",
+        payload: { key, error: message },
+      });
+      dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
-        payload:
-          error?.message ||
-          `Unable to execute accepted recommendation for ${symbol}.`,
+        payload: message,
       });
     }
   };
@@ -617,6 +704,7 @@ export default function App() {
     }
 
     const { positions } = pickPortfolioData(portfolioQuery.data, portfolioRecord.id);
+    const activePositions = filterActivePositions(positions, portfolioRecord.resetAt);
     const mode = action.type === "BUY_ADD_HOLDING" ? "buy" : "sell";
     if (mode === "buy" && action?.payload?.enforceReserve !== false) {
       const reserveFloor = Math.max(0, Number(totalValue) * 0.1);
@@ -633,7 +721,7 @@ export default function App() {
     try {
       await executeTrade({
         portfolio: portfolioRecord,
-        positions,
+        positions: activePositions,
         mode,
         ...action.payload,
       });
@@ -684,6 +772,47 @@ export default function App() {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
         payload: error?.message || "Unable to adjust cash reserve in InstantDB.",
+      });
+    } finally {
+      dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
+    }
+  };
+  const openResetPortfolioModal = () => setIsResetModalOpen(true);
+  const closeResetPortfolioModal = () => setIsResetModalOpen(false);
+  const handleResetPortfolio = async () => {
+    if (
+      !isInstantDbEnabled ||
+      !signedInUser ||
+      portfolioQuery.isLoading ||
+      !portfolioQuery.data
+    ) {
+      dispatch({ type: "RESET_PORTFOLIO" });
+      closeResetPortfolioModal();
+      return;
+    }
+
+    const portfolioRecord = activePortfolioRecord;
+    if (!portfolioRecord) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: "Portfolio not ready yet. Please retry in a moment.",
+      });
+      closeResetPortfolioModal();
+      return;
+    }
+
+    dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
+    try {
+      await resetPortfolioToCashReserve({
+        portfolioId: portfolioRecord.id,
+        cashReserve: 250000,
+      });
+      dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
+      closeResetPortfolioModal();
+    } catch (error) {
+      dispatch({
+        type: "SET_PORTFOLIO_SYNC_ERROR",
+        payload: error?.message || "Unable to reset portfolio in InstantDB.",
       });
     } finally {
       dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: false });
@@ -838,6 +967,7 @@ export default function App() {
                   openCashModal={openCashModal}
                   holdings={holdings}
                   cash={cash}
+                  resetAt={resetAt}
                   investedAmount={metrics.investedAmount}
                   totalValue={totalValue}
                   strategyGrowthPct={strategyGrowthPct}
@@ -850,7 +980,9 @@ export default function App() {
                   onTradingModeChange={handleTradingModeChange}
                   recommendationDecisions={recommendationDecisions}
                   recommendationOrderStatus={recommendationOrderStatus}
+                  recommendationOrderErrors={recommendationOrderErrors}
                   onRecommendationDecision={handleRecommendationDecision}
+                  onRequestResetPortfolio={openResetPortfolioModal}
                 />
               }
             />
@@ -947,6 +1079,16 @@ export default function App() {
               cash={cash}
               onClose={closeCashModal}
               onAdjustCashReserve={handleAdjustCashReserve}
+            />
+          </Suspense>
+        )}
+        {isResetModalOpen && (
+          <Suspense fallback={null}>
+            <ResetPortfolioModal
+              isOpen={isResetModalOpen}
+              onClose={closeResetPortfolioModal}
+              onConfirm={handleResetPortfolio}
+              isSubmitting={isSyncing}
             />
           </Suspense>
         )}

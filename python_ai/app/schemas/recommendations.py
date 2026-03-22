@@ -35,6 +35,7 @@ class SectorResearch(BaseModel):
 
 class StockIdea(BaseModel):
     symbol: str
+    company_name: str = ""
     sector: str
     thesis: str
     risk: str
@@ -78,8 +79,10 @@ class HoldingSnapshot(BaseModel):
 
 class CashDeploymentOption(BaseModel):
     symbol: str
+    name: str = ""
     sector: str
     thesis: str
+    recommendation_reason: str = ""
     risk: str
     entry_style: str = Field(pattern="^(immediate|pullback|watchlist)$")
     confidence: float = Field(ge=0.0, le=1.0)
@@ -89,6 +92,7 @@ class CashDeploymentOption(BaseModel):
 
 class SellLeg(BaseModel):
     symbol: str
+    name: str = ""
     shares: float = Field(default=0.0, ge=0.0)
     estimated_price: float = Field(default=0.0, ge=0.0)
     reason: str

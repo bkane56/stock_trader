@@ -1,9 +1,9 @@
-import seedHoldings from "../../data/portfolioHoldings.json";
 import { computeCashAdjustment } from "../../lib/cashAdjustments";
+import { resolveCompanyName } from "../../lib/companyNames";
 import { clampPercentage, strategyFromGrowth } from "../../lib/portfolioMetrics";
 import { instantDb, instantId } from "./client";
 
-const DEFAULT_CASH_RESERVE = 42905.32;
+const DEFAULT_CASH_RESERVE = 250000;
 const DEFAULT_GROWTH_PCT = 60;
 
 function formatDate(isoOrMs) {
@@ -13,6 +13,50 @@ function formatDate(isoOrMs) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function isRecordAfterReset(recordTime, resetAt) {
+  if (!resetAt) return true;
+  return Number(recordTime || 0) >= Number(resetAt);
+}
+
+function createCompanyNameRecordId(userId, symbol) {
+  return `${String(userId || "").trim()}::${String(symbol || "").trim().toUpperCase()}`;
+}
+
+function isTickerOnlyName(symbol, name) {
+  return String(name || "").trim().toUpperCase() === String(symbol || "").trim().toUpperCase();
+}
+
+export async function upsertCompanyNamesForUser(userId, entries = []) {
+  if (!instantDb) return 0;
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return 0;
+  if (!Array.isArray(entries) || !entries.length) return 0;
+
+  const deduped = new Map();
+  entries.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const symbol = String(entry.symbol || "").trim().toUpperCase();
+    const name = String(
+      entry.name || entry.company_name || entry.companyName || ""
+    ).trim();
+    if (!symbol || !name) return;
+    if (isTickerOnlyName(symbol, name)) return;
+    deduped.set(symbol, name);
+  });
+
+  if (!deduped.size) return 0;
+  const txs = Array.from(deduped.entries()).map(([symbol, name]) =>
+    instantDb.tx.company_names[createCompanyNameRecordId(normalizedUserId, symbol)].update({
+      userId: normalizedUserId,
+      symbol,
+      name,
+      updatedAt: Date.now(),
+    })
+  );
+  await instantDb.transact(txs);
+  return txs.length;
 }
 
 export function resolveDisplayUser(authUser, profile) {
@@ -52,24 +96,6 @@ export function pickPortfolioData(data, portfolioId) {
   return { portfolio, positions, events };
 }
 
-function holdingsToSeedEvents(holdings, portfolioId) {
-  return holdings.map((holding) => {
-    const eventTime = new Date(holding.dateAcquired).valueOf() || Date.now();
-    return {
-      id: instantId(),
-      portfolioId,
-      eventType: "BUY",
-      symbol: holding.symbol,
-      asset: holding.name,
-      shares: holding.shares,
-      price: holding.price,
-      amount: holding.shares * holding.price,
-      status: "Completed",
-      eventAt: eventTime,
-    };
-  });
-}
-
 export async function ensurePortfolioForUser(userId) {
   if (!instantDb || !userId) return;
 
@@ -95,39 +121,8 @@ export async function ensurePortfolioForUser(userId) {
     }).link({ owner: userId }),
   ];
 
-  const positionTxs = [];
-  seedHoldings.forEach((holding) => {
-    const positionId = instantId();
-    const acquiredAt = new Date(holding.dateAcquired).valueOf() || createdAt;
-    positionTxs.push(
-      instantDb.tx.positions[positionId].update({
-        portfolioId,
-        symbol: holding.symbol,
-        name: holding.name,
-        sector: holding.sector,
-        shares: holding.shares,
-        avgCost: holding.price,
-        updatedPrice: holding.price,
-        analysisTag: holding.analysis?.tag || "Seed Position",
-        analysisText: holding.analysis?.text || "Seeded from local portfolio file.",
-        createdAt: acquiredAt,
-        updatedAt: acquiredAt,
-      }).link({ portfolio: portfolioId })
-    );
-  });
-
-  const eventTxs = holdingsToSeedEvents(seedHoldings, portfolioId).map((event) =>
-    instantDb.tx.portfolio_events[event.id].update(event).link({ portfolio: portfolioId })
-  );
-
   // Stage writes so owner-based refs are resolvable before child records are created.
   await instantDb.transact(bootstrapTxs);
-  if (positionTxs.length) {
-    await instantDb.transact(positionTxs);
-  }
-  if (eventTxs.length) {
-    await instantDb.transact(eventTxs);
-  }
 }
 
 export async function ensurePortfolioOwnershipLink(portfolioId, userId) {
@@ -139,51 +134,24 @@ export async function ensurePortfolioOwnershipLink(portfolioId, userId) {
 
 export async function seedPortfolioDefaultsIfEmpty(portfolioId, positionRecords = [], eventRecords = []) {
   if (!instantDb || !portfolioId) return;
-  if (positionRecords.length > 0) return;
-  const hasTradeEvents = eventRecords.some(
-    (event) => event.eventType === "BUY" || event.eventType === "SELL"
-  );
-  if (hasTradeEvents) return;
-
-  const createdAt = Date.now();
-  const positionTxs = [];
-  seedHoldings.forEach((holding) => {
-    const positionId = instantId();
-    const acquiredAt = new Date(holding.dateAcquired).valueOf() || createdAt;
-    positionTxs.push(
-      instantDb.tx.positions[positionId].update({
-        portfolioId,
-        symbol: holding.symbol,
-        name: holding.name,
-        sector: holding.sector,
-        shares: holding.shares,
-        avgCost: holding.price,
-        updatedPrice: holding.price,
-        analysisTag: holding.analysis?.tag || "Seed Position",
-        analysisText: holding.analysis?.text || "Seeded from local portfolio file.",
-        createdAt: acquiredAt,
-        updatedAt: acquiredAt,
-      }).link({ portfolio: portfolioId })
-    );
-  });
-  const eventTxs = holdingsToSeedEvents(seedHoldings, portfolioId).map((event) =>
-    instantDb.tx.portfolio_events[event.id].update(event).link({ portfolio: portfolioId })
-  );
-
-  if (positionTxs.length) {
-    await instantDb.transact(positionTxs);
-  }
-  if (eventTxs.length) {
-    await instantDb.transact(eventTxs);
-  }
+  if (positionRecords.length > 0 || eventRecords.length > 0) return;
 }
 
-function buildTransactionsFromEvents(events = []) {
-  const ordered = [...events].sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
+function buildTransactionsFromEvents(events = [], resetAt = 0, namesBySymbol = {}) {
+  const ordered = [...events]
+    .filter((event) => Number(event.eventAt || 0) >= Number(resetAt || 0))
+    .sort((a, b) => (b.eventAt || 0) - (a.eventAt || 0));
   return ordered.map((event) => ({
-    id: event.id,
-    asset: event.asset || event.symbol || "Portfolio Event",
     symbol: event.symbol || "--",
+    name: resolveCompanyName(
+      event.symbol || "",
+      namesBySymbol[String(event.symbol || "").toUpperCase()] || event.asset || event.symbol || ""
+    ),
+    id: event.id,
+    asset: resolveCompanyName(
+      event.symbol || "",
+      namesBySymbol[String(event.symbol || "").toUpperCase()] || event.asset || event.symbol || "Portfolio Event"
+    ),
     type:
       event.eventType === "SELL"
         ? "Sell Order"
@@ -202,15 +170,57 @@ function buildTransactionsFromEvents(events = []) {
   }));
 }
 
-export function buildPortfolioState(portfolioRecord, positionRecords = [], eventRecords = []) {
-  const holdings = positionRecords
+export function filterActivePositions(positionRecords = [], resetAt = 0) {
+  return positionRecords.filter((position) =>
+    isRecordAfterReset(position.createdAt, resetAt)
+  );
+}
+
+export function buildPortfolioState(
+  portfolioRecord,
+  positionRecords = [],
+  eventRecords = [],
+  companyNameRecords = []
+) {
+  const activePositions = filterActivePositions(positionRecords, portfolioRecord?.resetAt);
+  const namesFromDb = Object.fromEntries(
+    (companyNameRecords || [])
+      .filter((row) => String(row?.symbol || "").trim())
+      .map((row) => {
+        const symbol = String(row.symbol || "").trim().toUpperCase();
+        return [symbol, resolveCompanyName(symbol, row.name)];
+      })
+  );
+  const namesFromPositions = Object.fromEntries(
+    activePositions
+      .filter((position) => String(position?.symbol || "").trim())
+      .map((position) => {
+        const symbol = String(position.symbol || "").trim().toUpperCase();
+        return [symbol, resolveCompanyName(symbol, position.name)];
+      })
+  );
+  const namesFromEvents = Object.fromEntries(
+    (eventRecords || [])
+      .filter((event) => String(event?.symbol || "").trim())
+      .map((event) => {
+        const symbol = String(event.symbol || "").trim().toUpperCase();
+        return [symbol, resolveCompanyName(symbol, event.asset)];
+      })
+  );
+  const namesBySymbol = { ...namesFromEvents, ...namesFromPositions, ...namesFromDb };
+  const holdings = activePositions
     .map((position) => {
       const price = Number(position.updatedPrice) || Number(position.avgCost) || 0;
       const shares = Number(position.shares) || 0;
+      const symbol = String(position.symbol || "").trim().toUpperCase();
+      const resolvedName = resolveCompanyName(
+        symbol,
+        namesFromDb[symbol] || position.name
+      );
       return {
         id: position.id,
-        symbol: position.symbol,
-        name: position.name || position.symbol,
+        symbol,
+        name: resolvedName,
         sector: position.sector || "Other",
         shares,
         price,
@@ -233,8 +243,13 @@ export function buildPortfolioState(portfolioRecord, positionRecords = [], event
   return {
     portfolioId: portfolioRecord?.id || null,
     holdings,
-    transactions: buildTransactionsFromEvents(eventRecords),
+    transactions: buildTransactionsFromEvents(
+      eventRecords,
+      portfolioRecord?.resetAt,
+      namesBySymbol
+    ),
     cash: Number(portfolioRecord?.cashReserve) || 0,
+    resetAt: portfolioRecord?.resetAt || null,
     strategyGrowthPct,
     strategyFixedPct,
     isHydrated: Boolean(portfolioRecord),
@@ -306,6 +321,9 @@ export async function executeTrade({
   price,
 }) {
   if (!instantDb) return;
+  const resolvedName = resolveCompanyName(symbol, name);
+  const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+  const normalizedUserId = String(portfolio?.userId || "").trim();
   const orderShares = clampShares(shares);
   if (!orderShares) {
     throw new Error("Share amount must be greater than zero.");
@@ -356,7 +374,7 @@ export async function executeTrade({
         instantDb.tx.positions[instantId()].update({
           portfolioId: portfolio.id,
           symbol,
-          name,
+          name: resolvedName,
           sector: sector || "Other",
           shares: orderShares,
           avgCost: marketPrice,
@@ -379,8 +397,8 @@ export async function executeTrade({
       instantDb.tx.portfolio_events[instantId()].update({
         portfolioId: portfolio.id,
         eventType: "BUY",
-        symbol,
-        asset: name,
+        symbol: normalizedSymbol,
+        asset: resolvedName,
         shares: orderShares,
         price: marketPrice,
         amount: cost,
@@ -420,8 +438,8 @@ export async function executeTrade({
       instantDb.tx.portfolio_events[instantId()].update({
         portfolioId: portfolio.id,
         eventType: "SELL",
-        symbol,
-        asset: name,
+        symbol: normalizedSymbol,
+        asset: resolvedName,
         shares: orderShares,
         price: marketPrice,
         amount: proceeds,
@@ -433,5 +451,46 @@ export async function executeTrade({
     throw new Error(`Unsupported trade mode: ${mode}`);
   }
 
+  if (
+    normalizedUserId &&
+    normalizedSymbol &&
+    resolvedName &&
+    !isTickerOnlyName(normalizedSymbol, resolvedName)
+  ) {
+    txs.push(
+      instantDb.tx.company_names[
+        createCompanyNameRecordId(normalizedUserId, normalizedSymbol)
+      ].update({
+        userId: normalizedUserId,
+        symbol: normalizedSymbol,
+        name: resolvedName,
+        updatedAt: Date.now(),
+      })
+    );
+  }
+
   await instantDb.transact(txs);
+}
+
+export async function resetPortfolioToCashReserve({
+  portfolioId,
+  cashReserve = DEFAULT_CASH_RESERVE,
+}) {
+  if (!instantDb || !portfolioId) return;
+  const now = Date.now();
+  const { strategyGrowthPct, strategyFixedPct } = strategyFromGrowth(DEFAULT_GROWTH_PCT);
+
+  const resetTxs = [
+    instantDb.tx.portfolios[portfolioId].update({
+      cashReserve,
+      strategyGrowthPct,
+      strategyFixedPct,
+      resetAt: now,
+      updatedAt: now,
+    }),
+  ];
+
+  if (resetTxs.length) {
+    await instantDb.transact(resetTxs);
+  }
 }

@@ -331,7 +331,9 @@ def _build_research_user_prompt(
         f"Minimum confidence for top_3_buys is {min_buy_confidence:.2f}.\n"
         f"{_strategy_context_text(strategy_growth_pct, strategy_fixed_pct)}\n"
         "Adjust recommendations to respect this strategy tilt and avoid over-concentrating "
-        "new cash deployment into a single symbol when alternatives are similarly compelling.\n"
+        "new cash deployment into a single symbol when alternatives are similarly compelling. "
+        "When similarly strong opportunities exist, prefer diversification across sectors "
+        "instead of concentrating top buys in one sector/theme.\n"
         f"Current holdings: {holdings_text}\n"
         f"Research focus: {focus_text}\n"
         "Return STRICT JSON with this exact top-level shape and no markdown:\n"
@@ -341,9 +343,11 @@ def _build_research_user_prompt(
         '"sector_outlook":[{"sector":"Technology","ticker":"XLK",'
         '"momentum":"strong|neutral|weak","summary":"..."}],'
         '"stock_ideas":[{"symbol":"NVDA","sector":"Technology","thesis":"...",'
-        '"risk":"...","entry_style":"immediate|pullback|watchlist","confidence":0.0}],'
+        '"company_name":"NVIDIA Corporation","risk":"...",'
+        '"entry_style":"immediate|pullback|watchlist","confidence":0.0}],'
         '"top_3_buys":[{"symbol":"NVDA","sector":"Technology","thesis":"...",'
-        '"risk":"...","entry_style":"pullback","confidence":0.0}],'
+        '"company_name":"NVIDIA Corporation","risk":"...",'
+        '"entry_style":"pullback","confidence":0.0}],'
         '"do_not_buy":[{"symbol":"XYZ","sector":"Utilities","reason":"...",'
         '"confidence":0.0}],'
         '"macro_summary":"..."'
@@ -356,6 +360,7 @@ def _build_cash_deployment_options(
     candidates: list[StockIdea],
     deployable_cash_budget: float,
     strategy_growth_pct: float,
+    known_names_by_symbol: dict[str, str] | None = None,
 ) -> list[CashDeploymentOption]:
     if deployable_cash_budget <= 0:
         return []
@@ -432,13 +437,25 @@ def _build_cash_deployment_options(
             allocations[-1] = round(max(0.0, allocations[-1] + delta), 2)
 
     options: list[CashDeploymentOption] = []
+    symbol_name_lookup = {
+        str(symbol).upper(): str(name).strip()
+        for symbol, name in (known_names_by_symbol or {}).items()
+        if str(symbol).strip()
+    }
     for row, amount in zip(candidates, allocations, strict=False):
         allocation_pct = (amount / safe_budget) if safe_budget > 0 else 0.0
+        resolved_name = (
+            row.company_name.strip()
+            or symbol_name_lookup.get(row.symbol.upper(), "").strip()
+            or row.symbol
+        )
         options.append(
             CashDeploymentOption(
                 symbol=row.symbol,
+                name=resolved_name,
                 sector=row.sector,
                 thesis=row.thesis,
+                recommendation_reason=row.thesis,
                 risk=row.risk,
                 entry_style=row.entry_style,
                 confidence=row.confidence,
@@ -541,6 +558,7 @@ def _build_execution_recommendations(
                 deficit = max(0.0, buy_amount - available_cash)
                 sell_leg = SellLeg(
                     symbol=str(candidate["symbol"]),
+                    name=str(candidate["name"] or candidate["symbol"]),
                     shares=shares_needed,
                     estimated_price=candidate_price,
                     reason=str(candidate["reason"]) or "Fund strong-buy rotation.",
@@ -565,12 +583,14 @@ def _build_execution_recommendations(
         )
         if sell_leg is not None:
             summary = (
-                f"Sell {sell_leg.shares:.4f} shares of {sell_leg.symbol}, then buy "
-                f"{funded_buy.symbol} with about ${funded_buy.suggested_amount:,.2f}."
+                f"Sell {sell_leg.name} ({sell_leg.symbol}) because {sell_leg.reason}. "
+                f"Then buy {funded_buy.name} ({funded_buy.symbol}) with about "
+                f"${funded_buy.suggested_amount:,.2f} because {funded_buy.recommendation_reason}."
             )
         else:
             summary = (
-                f"Buy {funded_buy.symbol} with about ${funded_buy.suggested_amount:,.2f}."
+                f"Buy {funded_buy.name} ({funded_buy.symbol}) with about "
+                f"${funded_buy.suggested_amount:,.2f} because {funded_buy.recommendation_reason}."
             )
         execution_rows.append(
             ExecutionRecommendation(
@@ -661,6 +681,9 @@ def _extract_market_research_from_model_output(
             stock_ideas.append(
                 StockIdea(
                     symbol=symbol,
+                    company_name=str(
+                        item.get("company_name", item.get("name", ""))
+                    ).strip(),
                     sector=sector,
                     thesis=str(item.get("thesis", "")).strip()
                     or "No thesis returned by model.",
@@ -682,6 +705,9 @@ def _extract_market_research_from_model_output(
             top_3_buys.append(
                 StockIdea(
                     symbol=symbol,
+                    company_name=str(
+                        item.get("company_name", item.get("name", ""))
+                    ).strip(),
                     sector=sector,
                     thesis=str(item.get("thesis", "")).strip()
                     or "No thesis returned by model.",
@@ -733,23 +759,64 @@ def _extract_market_research_from_model_output(
             selected.append(row)
         return selected
 
+    def _build_diversified_top_buys(
+        primary: list[StockIdea],
+        fallback: list[StockIdea],
+    ) -> list[StockIdea]:
+        # Favor primary candidates first, but diversify by sector before adding
+        # multiple names from the same sector.
+        pool: list[tuple[int, int, StockIdea]] = []
+        for idx, row in enumerate(primary):
+            pool.append((0, idx, row))
+        for idx, row in enumerate(fallback):
+            pool.append((1, idx, row))
+
+        ranked = sorted(pool, key=lambda item: (item[0], -item[2].confidence, item[1]))
+        selected: list[StockIdea] = []
+        used_symbols: set[str] = set()
+        used_sectors: set[str] = set()
+
+        for _, _, row in ranked:
+            symbol = row.symbol
+            sector_key = row.sector.strip().lower()
+            if symbol in used_symbols:
+                continue
+            if sector_key in used_sectors:
+                continue
+            selected.append(row)
+            used_symbols.add(symbol)
+            used_sectors.add(sector_key)
+            if len(selected) >= 3:
+                return selected
+
+        for _, _, row in ranked:
+            symbol = row.symbol
+            if symbol in used_symbols:
+                continue
+            selected.append(row)
+            used_symbols.add(symbol)
+            if len(selected) >= 3:
+                break
+
+        return selected
+
     non_holding_top_buys = _select_buy_candidates(top_3_buys, allow_holdings=False)
     non_holding_stock_ideas = _select_buy_candidates(stock_ideas, allow_holdings=False)
     holding_top_buys = _select_buy_candidates(top_3_buys, allow_holdings=True)
     holding_stock_ideas = _select_buy_candidates(stock_ideas, allow_holdings=True)
 
-    if non_holding_top_buys:
-        top_3_buys = non_holding_top_buys[:3]
-    elif non_holding_stock_ideas:
-        top_3_buys = sorted(
-            non_holding_stock_ideas, key=lambda row: row.confidence, reverse=True
-        )[:3]
-    elif holding_top_buys:
-        top_3_buys = holding_top_buys[:3]
+    if non_holding_top_buys or non_holding_stock_ideas:
+        top_3_buys = _build_diversified_top_buys(
+            non_holding_top_buys,
+            non_holding_stock_ideas,
+        )
+    elif holding_top_buys or holding_stock_ideas:
+        top_3_buys = _build_diversified_top_buys(
+            holding_top_buys,
+            holding_stock_ideas,
+        )
     else:
-        top_3_buys = sorted(
-            holding_stock_ideas, key=lambda row: row.confidence, reverse=True
-        )[:3]
+        top_3_buys = []
 
     if not raw_macro:
         raw_macro = "No macro summary returned by model."
@@ -1242,10 +1309,16 @@ def generate_morning_briefing(
     deployable_cash_budget = round(max(0.0, safe_cash_available - reserve_cash_target), 2)
     min_cash_to_deploy = max(0.0, float(settings.MORNING_BRIEFING_MIN_CASH))
     can_deploy = deployable_cash_budget >= min_cash_to_deploy
+    known_names_by_symbol = {
+        row.symbol.upper(): row.name.strip()
+        for row in (holdings_snapshot or [])
+        if row.symbol and row.name and row.name.strip()
+    }
     cash_deployment_options = _build_cash_deployment_options(
         candidates=research.top_3_buys if can_deploy else [],
         deployable_cash_budget=deployable_cash_budget,
         strategy_growth_pct=clamped_growth_pct,
+        known_names_by_symbol=known_names_by_symbol,
     )
     if not cash_deployment_options and research.top_3_buys and (holdings_snapshot or []):
         rotation_target_budget = max(min_cash_to_deploy, 0.0)
@@ -1253,6 +1326,7 @@ def generate_morning_briefing(
             candidates=research.top_3_buys,
             deployable_cash_budget=rotation_target_budget,
             strategy_growth_pct=clamped_growth_pct,
+            known_names_by_symbol=known_names_by_symbol,
         )
     execution_recommendations = _build_execution_recommendations(
         holdings_actions=holdings_actions,

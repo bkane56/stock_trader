@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { cn } from "../lib/utils";
+import { resolveCompanyName } from "../lib/companyNames";
 import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
 import { fetchSymbolQuote } from "../services/marketData";
 
@@ -51,7 +52,7 @@ export const TradeModal = ({
         .slice(0, 5)
         .map((idea) => ({
           symbol: String(idea.symbol || "").toUpperCase(),
-          name: idea.symbol || "AI Candidate",
+          name: resolveCompanyName(idea.symbol, idea.name || idea.symbol || "AI Candidate"),
           sector: idea.sector || "AI Idea",
           confidence: Number(idea.confidence) || 0,
         }))
@@ -149,7 +150,7 @@ export const TradeModal = ({
       const quote = await fetchSymbolQuote(normalized);
       const next = {
         symbol: String(quote.symbol || normalized).toUpperCase(),
-        name: String(quote.name || normalized),
+        name: resolveCompanyName(quote.symbol || normalized, quote.name || normalized),
         sector: "Other",
         price: Number(quote.price) || 0,
       };

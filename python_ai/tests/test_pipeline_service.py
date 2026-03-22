@@ -501,6 +501,73 @@ def test_top_buys_allows_holdings_when_no_external_candidates() -> None:
     assert output.top_3_buys[0].symbol == "MSFT"
 
 
+def test_top_buys_diversifies_sector_exposure_when_alternatives_exist() -> None:
+    payload = json.dumps(
+        {
+            "holdings_review": [],
+            "sector_outlook": [],
+            "stock_ideas": [
+                {
+                    "symbol": "NVDA",
+                    "sector": "Technology",
+                    "thesis": "AI demand remains strong.",
+                    "risk": "Valuation swings.",
+                    "entry_style": "pullback",
+                    "confidence": 0.9,
+                },
+                {
+                    "symbol": "AMD",
+                    "sector": "Technology",
+                    "thesis": "Share gains in accelerators.",
+                    "risk": "Competitive pressure.",
+                    "entry_style": "pullback",
+                    "confidence": 0.86,
+                },
+                {
+                    "symbol": "LLY",
+                    "sector": "Health Care",
+                    "thesis": "Pipeline momentum remains intact.",
+                    "risk": "Policy and pricing risk.",
+                    "entry_style": "watchlist",
+                    "confidence": 0.81,
+                },
+            ],
+            "top_3_buys": [
+                {
+                    "symbol": "NVDA",
+                    "sector": "Technology",
+                    "thesis": "AI demand remains strong.",
+                    "risk": "Valuation swings.",
+                    "entry_style": "pullback",
+                    "confidence": 0.9,
+                },
+                {
+                    "symbol": "AMD",
+                    "sector": "Technology",
+                    "thesis": "Share gains in accelerators.",
+                    "risk": "Competitive pressure.",
+                    "entry_style": "pullback",
+                    "confidence": 0.86,
+                },
+            ],
+            "do_not_buy": [],
+            "macro_summary": "Mixed but constructive macro backdrop.",
+        }
+    )
+
+    output = service._extract_market_research_from_model_output(
+        model_output=payload,
+        holdings=[],
+        min_buy_confidence=0.6,
+        generated_at=service.datetime.now(service.timezone.utc),
+    )
+
+    symbols = [row.symbol for row in output.top_3_buys]
+    assert "NVDA" in symbols
+    assert "LLY" in symbols
+    assert symbols.index("LLY") < symbols.index("AMD")
+
+
 def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     monkeypatch: Any,
 ) -> None:

@@ -1,10 +1,13 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,7 +34,9 @@ class OpenAIAgentsRuntime:
         return (self._python_ai_root / script_name).exists()
 
     def _market_server_params(self) -> dict[str, Any]:
-        polygon_env = {"POLYGON_API_KEY": self._settings.POLYGON_API_KEY.strip()}
+        polygon_env = self._subprocess_env(
+            {"POLYGON_API_KEY": self._settings.POLYGON_API_KEY.strip()}
+        )
         polygon_executable = "mcp_massive"
         is_paid_polygon = self._settings.POLYGON_PLAN.strip().lower() in {
             "paid",
@@ -82,13 +87,29 @@ class OpenAIAgentsRuntime:
                 {
                     "command": "npx",
                     "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-                    "env": {"BRAVE_API_KEY": brave_api_key},
+                    "env": self._subprocess_env({"BRAVE_API_KEY": brave_api_key}),
                 }
             )
         return MCPServerGroups(
             trader_params=trader_params,
             researcher_params=researcher_params,
         )
+
+    @staticmethod
+    def _subprocess_env(overrides: dict[str, str]) -> dict[str, str]:
+        """
+        Build a safe child-process environment for MCP subprocesses.
+
+        Some MCP wrappers treat `env` as the complete environment (not a merge),
+        so provide baseline shell variables and then apply tool-specific keys.
+        """
+        base_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "SHELL": os.environ.get("SHELL", ""),
+            "TMPDIR": os.environ.get("TMPDIR", ""),
+        }
+        return {**base_env, **overrides}
 
     @staticmethod
     def _summarize_server_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -134,12 +155,25 @@ class OpenAIAgentsRuntime:
             MCPServerStdio(params, client_session_timeout_seconds=30)
             for params in server_params
         ]
+        connected: list[Any] = []
         try:
-            for server in servers:
-                await server.connect()
-            yield servers
+            for params, server in zip(server_params, servers, strict=False):
+                try:
+                    await server.connect()
+                    connected.append(server)
+                except BaseException as exc:
+                    # Keep partial connectivity: if one MCP provider is down, use the others.
+                    logger.warning(
+                        "Skipping MCP server after failed connect command=%s args=%s error=%s",
+                        params.get("command"),
+                        params.get("args"),
+                        exc,
+                    )
+            if not connected:
+                raise RuntimeError("No MCP servers could be connected for this run.")
+            yield connected
         finally:
-            for server in servers:
+            for server in connected:
                 try:
                     await server.cleanup()
                 except BaseException:

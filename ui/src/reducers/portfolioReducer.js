@@ -1,41 +1,16 @@
 import { computeCashAdjustment } from "../lib/cashAdjustments";
-import portfolioHoldings from "../data/portfolioHoldings.json";
+import { resolveCompanyName } from "../lib/companyNames";
 import { clampPercentage, strategyFromGrowth } from "../lib/portfolioMetrics";
 
-const INITIAL_CASH = 42905.32;
+const INITIAL_CASH = 250000;
 const DEFAULT_GROWTH_PCT = 60;
 const defaultStrategy = strategyFromGrowth(DEFAULT_GROWTH_PCT);
 
-/**
- * Derive transactions from portfolio holdings using their dateAcquired field.
- * Each holding's initial purchase is represented as a "Buy Order" transaction.
- * Transactions are sorted most-recent-first.
- */
-function holdingsToTransactions(holdings) {
-  return holdings
-    .map((h, i) => ({
-      id: String(i + 1),
-      asset: h.name,
-      symbol: h.symbol,
-      type: "Buy Order",
-      date: new Date(h.dateAcquired).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      dateAcquired: h.dateAcquired,
-      amount: h.totalValue,
-      status: "Completed",
-    }))
-    .sort((a, b) => new Date(b.dateAcquired) - new Date(a.dateAcquired));
-}
-
-const allTransactions = holdingsToTransactions(portfolioHoldings);
-
 export const initialPortfolioState = {
-  transactions: allTransactions,
-  holdings: portfolioHoldings,
+  transactions: [],
+  holdings: [],
   cash: INITIAL_CASH,
+  resetAt: null,
   strategyGrowthPct: defaultStrategy.strategyGrowthPct,
   strategyFixedPct: defaultStrategy.strategyFixedPct,
   portfolioId: null,
@@ -54,10 +29,11 @@ function addTransaction(transactions, symbol, name, type, amount, shares) {
   const nextId = String(
     Math.max(0, ...transactions.map((t) => parseInt(t.id, 10))) + 1
   );
+  const resolvedName = resolveCompanyName(symbol, name);
   return [
     {
       id: nextId,
-      asset: name,
+      asset: resolvedName,
       symbol,
       type,
       date: dateStr,
@@ -72,6 +48,17 @@ function addTransaction(transactions, symbol, name, type, amount, shares) {
 
 export function portfolioReducer(state = initialPortfolioState, action) {
   switch (action.type) {
+    case "RESET_PORTFOLIO":
+      return {
+        ...state,
+        transactions: [],
+        holdings: [],
+        cash: INITIAL_CASH,
+        resetAt: Date.now(),
+        strategyGrowthPct: defaultStrategy.strategyGrowthPct,
+        strategyFixedPct: defaultStrategy.strategyFixedPct,
+        syncError: "",
+      };
     case "HYDRATE_PORTFOLIO": {
       return {
         ...state,
@@ -115,7 +102,7 @@ export function portfolioReducer(state = initialPortfolioState, action) {
             ...state.holdings,
             {
               symbol,
-              name,
+              name: resolveCompanyName(symbol, name),
               sector: sector || "Other",
               shares,
               price,

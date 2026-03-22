@@ -12,6 +12,7 @@ export const initialTradeState = {
   tradingMode: readPersistedTradingMode(),
   recommendationDecisions: {},
   recommendationOrderStatus: {},
+  recommendationOrderErrors: {},
 };
 
 export function tradeReducer(state, action) {
@@ -43,6 +44,10 @@ export function tradeReducer(state, action) {
           normalizeTradingMode(action.payload) === "assisted_agent"
             ? state.recommendationOrderStatus
             : {},
+        recommendationOrderErrors:
+          normalizeTradingMode(action.payload) === "assisted_agent"
+            ? state.recommendationOrderErrors
+            : {},
       };
     case "SET_RECOMMENDATION_DECISION": {
       const key = String(action.payload?.key || "").trim();
@@ -73,6 +78,25 @@ export function tradeReducer(state, action) {
           ...state.recommendationOrderStatus,
           [key]: status,
         },
+        recommendationOrderErrors:
+          status === "submitting" || status === "submitted" || status === "pending"
+            ? {
+                ...state.recommendationOrderErrors,
+                [key]: "",
+              }
+            : state.recommendationOrderErrors,
+      };
+    }
+    case "SET_RECOMMENDATION_ORDER_ERROR": {
+      const key = String(action.payload?.key || "").trim();
+      const error = String(action.payload?.error || "").trim();
+      if (!key) return state;
+      return {
+        ...state,
+        recommendationOrderErrors: {
+          ...state.recommendationOrderErrors,
+          [key]: error,
+        },
       };
     }
     case "CLEAR_RECOMMENDATION_DECISIONS":
@@ -80,6 +104,7 @@ export function tradeReducer(state, action) {
         ...state,
         recommendationDecisions: {},
         recommendationOrderStatus: {},
+        recommendationOrderErrors: {},
       };
     default:
       return state;
