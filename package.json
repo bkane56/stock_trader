@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "vercel:dev": "npx vercel@48.6.0 dev --listen 3000",
+    "vercel:preview": "npx vercel@48.6.0 --yes",
+    "vercel:prod": "npx vercel@48.6.0 --prod --yes"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

@@ -10,6 +10,7 @@ out/
 .parcel-cache/
 coverage/
 .nyc_output/
+.vercel/
 
 # Logs
 npm-debug.log*
@@ -91,3 +92,4 @@ Thumbs.db
 *.bak
 *.tmp
 *.orig
+.vercel

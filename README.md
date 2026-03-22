@@ -28,6 +28,72 @@ View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce
 3. Run the app:
    `yarn run dev`
 
+## Vercel Deployment (Dev First)
+
+This repo is configured for Vercel with:
+- `vercel.json` for Vite + SPA routing.
+- npm scripts for local Vercel dev, preview deploys, and production deploys.
+
+### 0) Confirm the CLI is logged in
+
+After `vercel login`, this must print your Vercel email (not an error):
+
+```bash
+npx vercel@48.6.0 whoami
+```
+
+If you see **“No existing credentials”**, the browser login did not save a token for this CLI (or you used a different machine). Fix it with either:
+
+- Run `npx vercel@48.6.0 login` again in **your normal terminal** (same user account as this repo), then re-check `whoami`, **or**
+- Create a token at [Vercel → Account → Tokens](https://vercel.com/account/tokens), then run commands with it (do not commit the token):
+
+```bash
+export VERCEL_TOKEN="vercel_token_..."   # session-only; use your shell profile for persistence if desired
+npx vercel@48.6.0 whoami
+```
+
+### 1) Link the repo to a Vercel project (one-time)
+
+Creates `.vercel/project.json` (gitignored). Use a project name you want on Vercel (example: `stock-trader`):
+
+```bash
+npx vercel@48.6.0 link --yes -p stock-trader
+```
+
+Interactive alternative (pick team/project in prompts):
+
+```bash
+npx vercel@48.6.0 link
+```
+
+### 2) Run Vercel locally first
+
+```bash
+yarn vercel:dev
+```
+
+Notes:
+- Keep the Python API running locally on `http://127.0.0.1:8010` for full features.
+- Frontend API calls use `VITE_PYTHON_AI_BASE_URL` (defaults to `http://127.0.0.1:8010`).
+
+### 3) Deploy preview (dev/staging)
+
+```bash
+yarn vercel:preview
+```
+
+### 4) Deploy production
+
+```bash
+yarn vercel:prod
+```
+
+### Recommended Vercel Environment Variables
+
+Set these in Vercel for Preview and Production as needed:
+- `VITE_INSTANTDB_APP_ID`
+- `VITE_PYTHON_AI_BASE_URL` (your deployed Python API URL)
+
 ## InstantDB Setup
 
 Frontend portfolio persistence and authentication use InstantDB.
