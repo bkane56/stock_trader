@@ -17,5 +17,7 @@ ENV PORT=8000
 EXPOSE 8000
 WORKDIR /app/python_ai
 
+# `uv sync` installs deps into `.venv`; `uvicorn` is not on global PATH.
+# Use `uv run` so the venv binary is used (same as local `uv run uvicorn`).
 # Railway/Render set PORT; default 8000 for local docker run.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "exec uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

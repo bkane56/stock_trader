@@ -42,6 +42,23 @@ Then open `http://127.0.0.1:8010/health`.
 2. Vercel: `VITE_PYTHON_AI_BASE_URL=https://YOUR_API_URL` → **Redeploy** the frontend.
 3. API env: CORS must include your exact Vercel origin(s).
 
+## Railway: `502` / “Application failed to respond”
+
+That response means Railway’s proxy **did not get a healthy HTTP response** from your process (crash, wrong port, or not listening).
+
+1. **Open logs:** Railway → your service → **Deployments** → latest deployment → **View logs**. Look for a Python traceback or “Address already in use”.
+2. **Bind to `0.0.0.0` and use Railway’s `PORT`:**  
+   Do **not** hardcode `8080` in the start command unless it matches what Railway sets. Prefer:
+   `uvicorn app.main:app --host 0.0.0.0 --port $PORT`  
+   (The repo’s `python_ai/Dockerfile` already does this.)
+3. **Working directory:** `uvicorn app.main:app` must run with **`python_ai` as the working directory** (or `PYTHONPATH` set), or imports fail at startup.
+4. **`uvicorn: not found`:** Dependencies from `uv sync` live in `.venv`; use **`uv run uvicorn ...`** (not bare `uvicorn`). The repo Dockerfile does this. If you use a **custom start command** without Docker:  
+   `cd python_ai && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. **Use the Dockerfile:** Settings → set **Dockerfile path** to `python_ai/Dockerfile` and build from **repo root**. If Railway auto-detected Nixpacks instead, the start command may be wrong — switch to Docker or fix the custom start command.
+6. **Redeploy** after changing variables or start settings.
+
+When fixed, `curl -sS "https://YOUR_URL.up.railway.app/health"` should return `{"status":"ok"}`.
+
 ## Notes
 
 - **Free tiers** may sleep or rate-limit; that’s normal for side projects.
