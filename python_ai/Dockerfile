@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir uv
 COPY python_ai/pyproject.toml python_ai/uv.lock python_ai/README.md ./python_ai/
 RUN cd python_ai && uv sync --frozen --no-dev
 
+# So hosts that override CMD with bare `uvicorn` (e.g. Railway autodetect) still find the binary.
+ENV PATH="/app/python_ai/.venv/bin:${PATH}"
+
 COPY python_ai/ ./python_ai/
 COPY .agents/ ./.agents/
 
