@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { resolveCompanyName } from "../lib/companyNames";
+import { TRANSACTION_FEE_USD } from "../lib/tradingConfig";
 import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
 import { fetchSymbolQuote } from "../services/marketData";
 
@@ -14,6 +15,7 @@ export const TradeModal = ({
   holdings,
   morningBriefing,
   tradingMode,
+  experienceMode = "basic",
   onExecuteTrade,
 }) => {
   const formatCurrency = (value) =>
@@ -88,6 +90,7 @@ export const TradeModal = ({
     holdings.find((portfolioStock) => portfolioStock.symbol === displayStock?.symbol)
       ?.shares ?? 0;
   const estimatedTotal = (Number(shares) || 0) * price;
+  const estimatedTotalWithFee = estimatedTotal + (mode === "buy" ? TRANSACTION_FEE_USD : 0);
   const holdingsMarketValue = (holdings || []).reduce(
     (sum, item) => sum + (Number(item?.totalValue) || Number(item?.shares) * Number(item?.price) || 0),
     0
@@ -95,7 +98,7 @@ export const TradeModal = ({
   const reserveFloor = Math.max(0, (Number(cash) + holdingsMarketValue) * 0.1);
   const spendableCash = Math.max(0, Number(cash) - reserveFloor);
   const invalidShares = !Number(shares) || Number(shares) <= 0;
-  const insufficientCash = mode === "buy" && estimatedTotal > spendableCash;
+  const insufficientCash = mode === "buy" && estimatedTotalWithFee > spendableCash;
   const insufficientShares = mode === "sell" && Number(shares) > owned;
   const cannotSellSelectedStock = mode === "sell" && owned <= 0;
   const missingPrice = !Number(price) || Number(price) <= 0;
@@ -147,7 +150,9 @@ export const TradeModal = ({
     setIsLookingUp(true);
     setLookupError("");
     try {
-      const quote = await fetchSymbolQuote(normalized);
+      const quote = await fetchSymbolQuote(normalized, {
+        pricingProfile: experienceMode === "basic" ? "basic" : "live",
+      });
       const next = {
         symbol: String(quote.symbol || normalized).toUpperCase(),
         name: resolveCompanyName(quote.symbol || normalized, quote.name || normalized),
@@ -172,7 +177,7 @@ export const TradeModal = ({
     if (!numShares || numShares <= 0 || !displayStock) return;
 
     if (mode === "buy") {
-      const cost = price * numShares;
+      const cost = price * numShares + TRANSACTION_FEE_USD;
       if (spendableCash < cost) return;
       onExecuteTrade({
         type: "BUY_ADD_HOLDING",
@@ -183,6 +188,7 @@ export const TradeModal = ({
           price,
           shares: numShares,
           enforceReserve: true,
+          transactionFee: TRANSACTION_FEE_USD,
         },
       });
     } else {
@@ -194,6 +200,7 @@ export const TradeModal = ({
           name: displayStock.name,
           shares: numShares,
           price: displayStock.price,
+          transactionFee: TRANSACTION_FEE_USD,
         },
       });
     }
@@ -394,10 +401,15 @@ export const TradeModal = ({
                   <div className="text-right">
                     <span className="text-slate-500 font-medium">Est. Total:</span>
                     <span className="font-black text-slate-900 ml-2">
-                      ${formatCurrency(estimatedTotal)}
+                      ${formatCurrency(estimatedTotalWithFee)}
                     </span>
                   </div>
                 </div>
+                {mode === "buy" && (
+                  <p className="text-[11px] font-medium text-slate-500">
+                    Includes ${formatCurrency(TRANSACTION_FEE_USD)} transaction fee.
+                  </p>
+                )}
 
                 {mode === "sell" && owned <= 0 && (
                   <p className="text-sm font-medium text-rose-600">

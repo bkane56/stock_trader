@@ -41,12 +41,12 @@ export function InstantMagicCodeLogin({ db, authError }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-4">
-      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
-        <h1 className="text-3xl font-black tracking-tight text-slate-900">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 flex items-center justify-center px-4">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100">
           Sign in to InvestAI
         </h1>
-        <p className="mt-3 text-sm font-medium text-slate-500">
+        <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-300">
           Use your email to receive a one-time code. Your portfolio and strategy
           sync through InstantDB after sign-in.
         </p>
@@ -64,7 +64,7 @@ export function InstantMagicCodeLogin({ db, authError }) {
 
         {!sentEmail ? (
           <form className="mt-8 space-y-4" onSubmit={sendCode}>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">
               Email
             </label>
             <input
@@ -73,7 +73,7 @@ export function InstantMagicCodeLogin({ db, authError }) {
               required
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
               disabled={isSubmitting}
@@ -88,7 +88,7 @@ export function InstantMagicCodeLogin({ db, authError }) {
             <p className="rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 text-xs font-bold text-teal-800">
               Enter the code sent to {sentEmail}.
             </p>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">
               Verification Code
             </label>
             <input
@@ -97,7 +97,7 @@ export function InstantMagicCodeLogin({ db, authError }) {
               required
               onChange={(e) => setCode(e.target.value)}
               placeholder="123456"
-              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
               disabled={isSubmitting}
@@ -113,7 +113,7 @@ export function InstantMagicCodeLogin({ db, authError }) {
                 setCode("");
                 setErrorMessage("");
               }}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-xs font-black uppercase tracking-widest text-slate-500 transition-all hover:bg-slate-50"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-xs font-black uppercase tracking-widest text-slate-500 transition-all hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               Use a Different Email
             </button>

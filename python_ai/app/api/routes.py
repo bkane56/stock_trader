@@ -5,6 +5,10 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.config import get_settings
+from app.core.market_hours import (
+    US_EQUITY_MARKET_HOURS_LABEL,
+    is_us_equity_trading_hours_eastern,
+)
 from app.pipeline.service import (
     generate_and_persist_morning_briefing,
     generate_morning_briefing,
@@ -160,6 +164,7 @@ def get_latest_morning_briefing() -> MorningBriefingResponse:
         strategy_growth_pct=60.0,
         strategy_fixed_pct=40.0,
         focus="general stock market and world news",
+        trading_mode="manual_user",
     )
 
 
@@ -167,6 +172,17 @@ def get_latest_morning_briefing() -> MorningBriefingResponse:
 def generate_morning_briefing_endpoint(
     payload: MorningBriefingGenerateRequest,
 ) -> MorningBriefingResponse:
+    if (
+        payload.trading_mode == "autonomous_agent"
+        and not is_us_equity_trading_hours_eastern()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Autonomous mode is restricted to US market hours "
+                f"({US_EQUITY_MARKET_HOURS_LABEL})."
+            ),
+        )
     if payload.persist:
         return generate_and_persist_morning_briefing(
             holdings=payload.holdings,
@@ -175,6 +191,7 @@ def generate_morning_briefing_endpoint(
             strategy_growth_pct=payload.strategy_growth_pct,
             strategy_fixed_pct=payload.strategy_fixed_pct,
             focus=payload.focus,
+            trading_mode=payload.trading_mode,
         )
     return generate_morning_briefing(
         holdings=payload.holdings,
@@ -183,4 +200,5 @@ def generate_morning_briefing_endpoint(
         strategy_growth_pct=payload.strategy_growth_pct,
         strategy_fixed_pct=payload.strategy_fixed_pct,
         focus=payload.focus,
+        trading_mode=payload.trading_mode,
     )

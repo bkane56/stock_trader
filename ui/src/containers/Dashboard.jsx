@@ -45,7 +45,6 @@ export function Dashboard({
   recommendationOrderStatus,
   recommendationOrderErrors,
   onRecommendationDecision,
-  onRequestResetPortfolio,
 }) {
   const formatCurrency = (value) =>
     Number(value || 0).toLocaleString(undefined, {
@@ -71,20 +70,34 @@ export function Dashboard({
     : transactions.slice(0, 3);
   const deploymentPct =
     totalValue > 0 ? Math.min(100, (positionsMarketValue / totalValue) * 100) : 0;
-  const topActions = (morningBriefing?.holdings_actions || [])
-    .filter((item) => holdingSymbols.has(String(item.symbol || "").toUpperCase()))
+  const topHoldings = [...activeHoldings].sort(
+    (a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0)
+  );
+  const holdingsActionsBySymbol = new Map(
+    (morningBriefing?.holdings_actions || [])
+      .filter((item) => holdingSymbols.has(String(item.symbol || "").toUpperCase()))
+      .map((item) => [String(item.symbol || "").toUpperCase(), item])
+  );
+  const topActions = topHoldings
+    .map((holding) => holdingsActionsBySymbol.get(String(holding.symbol || "").toUpperCase()))
+    .filter(Boolean)
     .slice(0, 3);
   const topDeployIdeas = (
     morningBriefing?.execution_recommendations?.length
       ? morningBriefing.execution_recommendations
       : morningBriefing?.cash_deployment_options || []
   ).slice(0, 3);
-  const topHoldings = [...activeHoldings]
-    .sort((a, b) => (Number(b.totalValue) || 0) - (Number(a.totalValue) || 0))
-    .slice(0, activeHoldings.length);
   const generatedAt = morningBriefing?.generated_at
     ? new Date(morningBriefing.generated_at).toLocaleString()
     : "";
+  const portfolioReturnPct =
+    Number(investedAmount) > 0
+      ? ((positionsMarketValue - Number(investedAmount)) / Number(investedAmount)) * 100
+      : 0;
+  const portfolioReturnLabel =
+    portfolioReturnPct >= 0
+      ? `${portfolioReturnPct.toFixed(1)}% above cost basis`
+      : `${Math.abs(portfolioReturnPct).toFixed(1)}% below cost basis`;
 
   return (
     <motion.div
@@ -99,9 +112,11 @@ export function Dashboard({
           {getGreeting()}, {user?.firstName || "Investor"}.
         </h1>
         <p className="text-slate-500 font-medium mt-2 flex items-center gap-2">
-          Your AI-driven portfolio is performing{" "}
-          <span className="text-emerald-600 font-bold">
-            4.2% above benchmark
+          Your AI-driven portfolio is currently{" "}
+          <span
+            className={`font-bold ${portfolioReturnPct >= 0 ? "text-emerald-600" : "text-rose-600"}`}
+          >
+            {portfolioReturnLabel}
           </span>{" "}
           today.
         </p>
@@ -208,12 +223,6 @@ export function Dashboard({
                 Withdraw
               </button>
             </div>
-            <button
-              onClick={() => onRequestResetPortfolio?.()}
-              className="mt-2 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-100 transition-colors"
-            >
-              Reset Portfolio
-            </button>
             {resetAt ? (
               <p className="pt-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 text-center">
                 Reset completed {new Date(resetAt).toLocaleString()}
@@ -332,7 +341,7 @@ export function Dashboard({
 
                 <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100">
                   <p className="text-sm font-black text-blue-900 mb-2">
-                    Top Holding Actions
+                    Top Holding Actions (by position value)
                   </p>
                   <div className="space-y-2">
                     {topActions.length ? (

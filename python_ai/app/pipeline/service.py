@@ -334,6 +334,10 @@ def _build_research_user_prompt(
         "new cash deployment into a single symbol when alternatives are similarly compelling. "
         "When similarly strong opportunities exist, prefer diversification across sectors "
         "instead of concentrating top buys in one sector/theme.\n"
+        "Use decisive language and make definitive stances for each current holding and each "
+        "buy idea so recommendations are directly executable.\n"
+        "Target a portfolio footprint of 4 to 10 total securities after proposed actions; "
+        "prioritize buys when under-diversified and rotations/trims when over-concentrated.\n"
         f"Current holdings: {holdings_text}\n"
         f"Research focus: {focus_text}\n"
         "Return STRICT JSON with this exact top-level shape and no markdown:\n"
@@ -1275,6 +1279,7 @@ def generate_morning_briefing(
     strategy_growth_pct: float = 60.0,
     strategy_fixed_pct: float = 40.0,
     focus: str = "",
+    trading_mode: str = "manual_user",
 ) -> MorningBriefingResponse:
     settings = get_settings()
     normalized_holdings = _normalize_symbols(holdings)
@@ -1335,8 +1340,14 @@ def generate_morning_briefing(
         deployable_cash_budget=deployable_cash_budget,
     )
 
+    execution_mode = {
+        "manual_user": "manual",
+        "assisted_agent": "assisted",
+        "autonomous_agent": "autonomous",
+    }.get(str(trading_mode).strip(), "manual")
+
     return MorningBriefingResponse(
-        execution_mode="manual",
+        execution_mode=execution_mode,
         holdings_actions=holdings_actions,
         cash_deployment_options=cash_deployment_options,
         cash_available=safe_cash_available,
@@ -1380,6 +1391,7 @@ def generate_and_persist_morning_briefing(
     strategy_growth_pct: float = 60.0,
     strategy_fixed_pct: float = 40.0,
     focus: str = "",
+    trading_mode: str = "manual_user",
 ) -> MorningBriefingResponse:
     briefing = generate_morning_briefing(
         holdings=holdings,
@@ -1388,6 +1400,7 @@ def generate_and_persist_morning_briefing(
         strategy_growth_pct=strategy_growth_pct,
         strategy_fixed_pct=strategy_fixed_pct,
         focus=focus,
+        trading_mode=trading_mode,
     )
     persist_morning_briefing(briefing)
     return briefing

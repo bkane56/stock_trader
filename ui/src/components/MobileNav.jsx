@@ -15,8 +15,8 @@ export function MobileNav({ items }) {
               cn(
                 "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-all",
                 isActive
-                  ? "bg-teal-50 text-teal-600"
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                  ? "bg-teal-50 text-teal-600 dark:bg-teal-900/40"
+                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white",
               )
             }
           >

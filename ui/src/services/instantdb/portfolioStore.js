@@ -20,15 +20,15 @@ function isRecordAfterReset(recordTime, resetAt) {
   return Number(recordTime || 0) >= Number(resetAt);
 }
 
-function createCompanyNameRecordId(userId, symbol) {
-  return `${String(userId || "").trim()}::${String(symbol || "").trim().toUpperCase()}`;
-}
-
 function isTickerOnlyName(symbol, name) {
   return String(name || "").trim().toUpperCase() === String(symbol || "").trim().toUpperCase();
 }
 
-export async function upsertCompanyNamesForUser(userId, entries = []) {
+export async function upsertCompanyNamesForUser(
+  userId,
+  entries = [],
+  existingRecords = []
+) {
   if (!instantDb) return 0;
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) return 0;
@@ -47,14 +47,27 @@ export async function upsertCompanyNamesForUser(userId, entries = []) {
   });
 
   if (!deduped.size) return 0;
-  const txs = Array.from(deduped.entries()).map(([symbol, name]) =>
-    instantDb.tx.company_names[createCompanyNameRecordId(normalizedUserId, symbol)].update({
-      userId: normalizedUserId,
-      symbol,
-      name,
-      updatedAt: Date.now(),
-    })
+  const existingBySymbol = new Map(
+    (existingRecords || [])
+      .filter((row) => String(row?.userId || "").trim() === normalizedUserId)
+      .map((row) => [String(row?.symbol || "").trim().toUpperCase(), row])
   );
+  const txs = Array.from(deduped.entries())
+    .filter(([symbol, name]) => {
+      const existing = existingBySymbol.get(symbol);
+      return !existing || String(existing.name || "").trim() !== name;
+    })
+    .map(([symbol, name]) =>
+      instantDb.tx.company_names[
+        existingBySymbol.get(symbol)?.id || instantId()
+      ].update({
+        userId: normalizedUserId,
+        symbol,
+        name,
+        updatedAt: Date.now(),
+      })
+    );
+  if (!txs.length) return 0;
   await instantDb.transact(txs);
   return txs.length;
 }
@@ -313,12 +326,14 @@ export async function adjustCashReserve({ portfolio, mode, amount }) {
 export async function executeTrade({
   portfolio,
   positions,
+  companyNameRecords = [],
   mode,
   symbol,
   name,
   sector,
   shares,
   price,
+  transactionFee = 0,
 }) {
   if (!instantDb) return;
   const resolvedName = resolveCompanyName(symbol, name);
@@ -330,6 +345,7 @@ export async function executeTrade({
   }
   const marketPrice = Number(price) || 0;
   const currentCash = Number(portfolio?.cashReserve) || 0;
+  const normalizedTransactionFee = Math.max(0, Number(transactionFee) || 0);
   const existing = positions.find((position) => position.symbol === symbol) || null;
   const positionsMarketValue = positions.reduce((sum, position) => {
     const positionShares = Number(position.shares) || 0;
@@ -343,10 +359,11 @@ export async function executeTrade({
 
   if (mode === "buy") {
     const cost = orderShares * marketPrice;
-    if (cost > currentCash) {
+    const totalCost = cost + normalizedTransactionFee;
+    if (totalCost > currentCash) {
       throw new Error("This order exceeds your available cash.");
     }
-    if (currentCash - cost < reserveFloor) {
+    if (currentCash - totalCost < reserveFloor) {
       throw new Error(
         "Order blocked: this buy would push cash below the 10% reserve floor."
       );
@@ -389,7 +406,7 @@ export async function executeTrade({
 
     txs.push(
       instantDb.tx.portfolios[portfolio.id].update({
-        cashReserve: currentCash - cost,
+        cashReserve: currentCash - totalCost,
         updatedAt: Date.now(),
       })
     );
@@ -401,7 +418,8 @@ export async function executeTrade({
         asset: resolvedName,
         shares: orderShares,
         price: marketPrice,
-        amount: cost,
+        amount: totalCost,
+        transactionFee: normalizedTransactionFee,
         status: "Completed",
         eventAt: Date.now(),
       }).link({ portfolio: portfolio.id })
@@ -416,6 +434,10 @@ export async function executeTrade({
     }
 
     const proceeds = orderShares * marketPrice;
+    const netProceeds = proceeds - normalizedTransactionFee;
+    if (netProceeds <= 0) {
+      throw new Error("Order blocked: proceeds do not cover transaction fees.");
+    }
     const remainingShares = heldShares - orderShares;
     if (remainingShares <= 0) {
       txs.push(instantDb.tx.positions[existing.id].delete());
@@ -430,7 +452,7 @@ export async function executeTrade({
     }
     txs.push(
       instantDb.tx.portfolios[portfolio.id].update({
-        cashReserve: currentCash + proceeds,
+        cashReserve: currentCash + netProceeds,
         updatedAt: Date.now(),
       })
     );
@@ -442,7 +464,8 @@ export async function executeTrade({
         asset: resolvedName,
         shares: orderShares,
         price: marketPrice,
-        amount: proceeds,
+        amount: netProceeds,
+        transactionFee: normalizedTransactionFee,
         status: "Completed",
         eventAt: Date.now(),
       }).link({ portfolio: portfolio.id })
@@ -457,16 +480,24 @@ export async function executeTrade({
     resolvedName &&
     !isTickerOnlyName(normalizedSymbol, resolvedName)
   ) {
-    txs.push(
-      instantDb.tx.company_names[
-        createCompanyNameRecordId(normalizedUserId, normalizedSymbol)
-      ].update({
-        userId: normalizedUserId,
-        symbol: normalizedSymbol,
-        name: resolvedName,
-        updatedAt: Date.now(),
-      })
+    const existingCompanyNameRecord = (companyNameRecords || []).find(
+      (row) =>
+        String(row?.userId || "").trim() === normalizedUserId &&
+        String(row?.symbol || "").trim().toUpperCase() === normalizedSymbol
     );
+    const existingName = String(existingCompanyNameRecord?.name || "").trim();
+    if (existingName !== resolvedName) {
+      txs.push(
+        instantDb.tx.company_names[
+          existingCompanyNameRecord?.id || instantId()
+        ].update({
+          userId: normalizedUserId,
+          symbol: normalizedSymbol,
+          name: resolvedName,
+          updatedAt: Date.now(),
+        })
+      );
+    }
   }
 
   await instantDb.transact(txs);

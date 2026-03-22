@@ -113,7 +113,10 @@ class RiskFlag(BaseModel):
 
 
 class MorningBriefingResponse(BaseModel):
-    execution_mode: str = Field(default="manual", pattern="^(manual)$")
+    execution_mode: str = Field(
+        default="manual",
+        pattern="^(manual|assisted|autonomous)$",
+    )
     holdings_actions: list[HoldingAction]
     cash_deployment_options: list[CashDeploymentOption]
     cash_available: float = Field(default=0.0, ge=0.0)
@@ -136,3 +139,7 @@ class MorningBriefingGenerateRequest(BaseModel):
     strategy_fixed_pct: float = Field(default=40.0, ge=0.0, le=100.0)
     focus: str = ""
     persist: bool = True
+    trading_mode: str = Field(
+        default="manual_user",
+        pattern="^(manual_user|assisted_agent|autonomous_agent)$",
+    )

@@ -21,6 +21,7 @@ export async function generateMorningBriefing({
   strategyFixedPct = 40,
   focus = "",
   persist = false,
+  tradingMode = "manual_user",
 } = {}) {
   const normalizedHoldings = Array.from(
     new Set(
@@ -48,6 +49,7 @@ export async function generateMorningBriefing({
       strategy_fixed_pct: Math.max(0, Math.min(100, Number(strategyFixedPct) || 0)),
       focus: String(focus || ""),
       persist: Boolean(persist),
+      trading_mode: String(tradingMode || "manual_user"),
     }),
   });
   if (!response.ok) {

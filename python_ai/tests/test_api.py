@@ -136,7 +136,7 @@ def test_generate_briefing_endpoint_accepts_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         api_routes,
         "generate_and_persist_morning_briefing",
-        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus: (
+        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus, trading_mode: (
             api_routes.MorningBriefingResponse.model_validate(briefing)
         ),
     )
@@ -153,3 +153,72 @@ def test_generate_briefing_endpoint_accepts_payload(monkeypatch) -> None:
     payload = response.json()
     assert payload["execution_mode"] == "manual"
     assert payload["cash_deployment_options"][0]["symbol"] == "MSFT"
+
+
+def test_generate_briefing_blocks_autonomous_outside_market_hours(monkeypatch) -> None:
+    monkeypatch.setattr(
+        api_routes,
+        "is_us_equity_trading_hours_eastern",
+        lambda: False,
+    )
+    response = client.post(
+        "/briefings/generate",
+        json={
+            "holdings": ["QQQ"],
+            "cash_available": 5000,
+            "focus": "general market news",
+            "persist": False,
+            "trading_mode": "autonomous_agent",
+        },
+    )
+    assert response.status_code == 403
+    assert "Autonomous mode is restricted to US market hours" in response.json()["detail"]
+
+
+def test_generate_briefing_allows_autonomous_during_market_hours(monkeypatch) -> None:
+    briefing = {
+        "execution_mode": "autonomous",
+        "holdings_actions": [
+            {
+                "symbol": "QQQ",
+                "action": "hold",
+                "confidence": 0.66,
+                "reason": "Within allowed market-hours window.",
+            }
+        ],
+        "cash_deployment_options": [],
+        "macro_news_summary": "Normal conditions.",
+        "risk_flags": [
+            {
+                "category": "macro",
+                "severity": "low",
+                "summary": "No elevated systemic risks.",
+            }
+        ],
+        "generated_at": "2026-03-19T12:00:00+00:00",
+    }
+    monkeypatch.setattr(
+        api_routes,
+        "is_us_equity_trading_hours_eastern",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        api_routes,
+        "generate_morning_briefing",
+        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus, trading_mode: (
+            api_routes.MorningBriefingResponse.model_validate(briefing)
+        ),
+    )
+    response = client.post(
+        "/briefings/generate",
+        json={
+            "holdings": ["QQQ"],
+            "cash_available": 5000,
+            "focus": "general market news",
+            "persist": False,
+            "trading_mode": "autonomous_agent",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution_mode"] == "autonomous"
