@@ -31,7 +31,7 @@ From **repo root**:
 
 ```bash
 docker build -f python_ai/Dockerfile -t stock-trader-api .
-docker run --rm -p 8010:8000 -e OPENAI_API_KEY=... -e CORS_ALLOW_ORIGINS=http://localhost:3000 stock-trader-api
+docker run --rm -p 8010:8080 -e OPENAI_API_KEY=... -e CORS_ALLOW_ORIGINS=http://localhost:3000 stock-trader-api
 ```
 
 Then open `http://127.0.0.1:8010/health`.
@@ -48,7 +48,7 @@ That response means Railway’s proxy **did not get a healthy HTTP response** fr
 
 1. **Open logs:** Railway → your service → **Deployments** → latest deployment → **View logs**. Look for a Python traceback or “Address already in use”.
 2. **Bind to `0.0.0.0` and use Railway’s `PORT`:**  
-   Use `$PORT` (Railway sets it, often `8080`). The repo `python_ai/Dockerfile` runs `python -m uvicorn` from `.venv` on `${PORT:-8000}`.
+   Use `$PORT` (Railway sets it, often `8080`). The repo `python_ai/Dockerfile` listens on `${PORT:-8080}` so it matches **Networking → port 8080** if `PORT` is missing.
 3. **Working directory:** `uvicorn app.main:app` must run with **`python_ai` as the working directory** (or `PYTHONPATH` set), or imports fail at startup.
 4. **`uvicorn: not found`:** Dependencies from `uv sync` live in `.venv`; **bare `uvicorn` is not on `PATH`**. The Dockerfile uses  
    `/app/python_ai/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`.  
@@ -57,6 +57,15 @@ That response means Railway’s proxy **did not get a healthy HTTP response** fr
 6. **Redeploy** after changing variables or start settings.
 
 When fixed, `curl -sS "https://YOUR_URL.up.railway.app/health"` should return `{"status":"ok"}`.
+
+## Railway: `502` + `connection dial timeout`
+
+Railway’s proxy **could not open TCP** to your container (often **wrong port**).
+
+1. **Networking** tab: note the port (e.g. **8080**). The app must listen on **that same port**.
+2. In **Variables**, add **`PORT=8080`** (match the Networking port) and redeploy.
+3. **Do not** bake a different `ENV PORT` in the image than the public port — the Dockerfile avoids that; defaults to **8080** when unset.
+4. **Logs:** confirm a line like `Uvicorn running on http://0.0.0.0:8080` (or your `PORT`). If the process exits before that, fix the traceback first.
 
 ## Notes
 

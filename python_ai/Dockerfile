@@ -13,11 +13,11 @@ RUN cd python_ai && uv sync --frozen --no-dev
 COPY python_ai/ ./python_ai/
 COPY .agents/ ./.agents/
 
-ENV PORT=8000
-EXPOSE 8000
+# Do not set ENV PORT here — Railway routes to the port in Networking (often 8080).
+# If we baked PORT=8000, some setups still forwarded 8080 → "connection dial timeout".
 WORKDIR /app/python_ai
 
 # `uv sync` installs deps into `.venv`; bare `uvicorn` is not on global PATH.
-# Call the venv interpreter explicitly (more reliable than `uv run` if PATH differs).
-# Railway/Render set PORT; default 8000 for local docker run.
-CMD ["sh", "-c", "exec /app/python_ai/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Default 8080 matches Railway's public port when $PORT is unset; Railway usually injects PORT.
+EXPOSE 8080
+CMD ["sh", "-c", "exec /app/python_ai/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
