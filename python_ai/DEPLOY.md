@@ -6,16 +6,26 @@ The UI on Vercel must call a **public HTTPS URL** for this service. You need to 
 
 The repo includes **`railway.json` at the monorepo root** so Railway uses **Docker** and **`python_ai/Dockerfile`**, not Railpack/Nixpacks (which often produce a bad start command for this app).
 
+### Railway settings checklist (required)
+
+Confirm these in the **Railway dashboard** after connecting the repo. **Custom settings in the UI override** [`railway.json`](../railway.json) and the Dockerfile `CMD` — a saved **Start Command** of bare `uvicorn ...` causes `sh: 1: exec: uvicorn: not found` because dependencies live only in `.venv`.
+
+| Setting | Value |
+|--------|--------|
+| **Root Directory** | Empty (repo root). **Not** `python_ai` — the Dockerfile `COPY python_ai/` and `COPY .agents/` lines need build context at the repository root. |
+| **Builder** | **Dockerfile** (not Nixpacks / Railpack autodetect). |
+| **Dockerfile path** | `python_ai/Dockerfile` (relative to repo root). |
+| **Start Command** (Deploy) | **Leave empty** so the image `CMD` runs, **or** paste exactly the `python -m uvicorn` command from `railway.json` `deploy.startCommand`. **Do not** use bare `uvicorn app.main:app ...`. |
+
 1. Sign up at [railway.app](https://railway.app) (GitHub login is fine).
 2. **New project** → **Deploy from GitHub repo** → pick `stock_trader` (or deploy with **Empty project** → **Dockerfile** if you prefer not to connect GitHub yet).
-3. If using GitHub: set **Root Directory** to **empty** (repo root). Do **not** set it to `python_ai` — the Dockerfile’s `COPY python_ai/` and `COPY .agents/` lines assume the build context is the **repository root**. Add a service that builds with Docker:
-   - **Settings** → set **Dockerfile path** to `python_ai/Dockerfile` (path relative to repo root).
-4. **Variables** tab — add the same secrets you use locally, at minimum:
+3. Apply the checklist above (root directory, Dockerfile builder, Dockerfile path, start command).
+5. **Variables** tab — add the same secrets you use locally, at minimum:
    - `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` if you use Anthropic)
    - `POLYGON_API_KEY` (if you use Polygon)
    - `CORS_ALLOW_ORIGINS` — your Vercel frontend origin(s), e.g. `https://stock-trader-wine.vercel.app,http://localhost:3000`
    - Optional: `CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app` for preview URLs
-5. Railway assigns a URL like `https://your-service.up.railway.app`.  
+6. Railway assigns a URL like `https://your-service.up.railway.app`.  
    In **Vercel**, set **`VITE_PYTHON_AI_BASE_URL`** to that URL (no trailing slash), then **redeploy** the frontend.
 
 ## Option B — Render
@@ -38,11 +48,18 @@ docker run --rm -p 8010:8080 -e OPENAI_API_KEY=... -e CORS_ALLOW_ORIGINS=http://
 
 Then open `http://127.0.0.1:8010/health`.
 
+Or run the automated check (builds, starts an ephemeral container, curls `/health`):
+
+```bash
+./python_ai/scripts/verify_docker_image.sh
+```
+
 ## After deploy
 
-1. `curl https://YOUR_API_URL/health` should return JSON with `"status":"ok"`.
-2. Vercel: `VITE_PYTHON_AI_BASE_URL=https://YOUR_API_URL` → **Redeploy** the frontend.
-3. API env: CORS must include your exact Vercel origin(s).
+1. **Railway:** open **Deployments** → latest → **View logs**. You should see a line like `Uvicorn running on http://0.0.0.0:8080` (or your `PORT`). If the process exits immediately, fix the traceback first.
+2. `curl https://YOUR_API_URL/health` should return JSON with `"status":"ok"`.
+3. Vercel: `VITE_PYTHON_AI_BASE_URL=https://YOUR_API_URL` → **Redeploy** the frontend.
+4. API env: CORS must include your exact Vercel origin(s).
 
 ## Railway: `502` / “Application failed to respond”
 
