@@ -35,6 +35,10 @@ import { fetchLatestMorningBriefing, generateMorningBriefing } from "./services/
 import { fetchSymbolQuote } from "./services/marketData";
 import { registerCompanyNames, resolveCompanyName } from "./lib/companyNames";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
+import {
+  AUTONOMOUS_RESEARCH_INTERVAL_MS,
+  DEFAULT_PORTFOLIO_CASH_USD,
+} from "./lib/portfolioDefaults";
 import { AUTONOMOUS_MIN_CONFIDENCE, TRANSACTION_FEE_USD } from "./lib/tradingConfig";
 import {
   isWithinUsEasternTradingHours,
@@ -51,6 +55,7 @@ import {
   pickPortfolioData,
   pickUserPortfolio,
   persistStrategySplit,
+  refreshHoldingsMarketPricesFromQuotes,
   resetPortfolioToCashReserve,
   resolveDisplayUser,
   seedPortfolioDefaultsIfEmpty,
@@ -109,7 +114,6 @@ const DEFAULT_THEME_MODE = "system";
 const THEME_MODE_STORAGE_KEY = "investai.themeMode";
 const AUTONOMOUS_MIN_SECURITIES = 4;
 const AUTONOMOUS_MAX_SECURITIES = 10;
-const AUTONOMOUS_RESEARCH_INTERVAL_MS = 30 * 60 * 1000;
 const AUTONOMOUS_MAX_FEE_RATIO = 0.02;
 
 function normalizeExperienceMode(mode) {
@@ -398,22 +402,39 @@ export default function App() {
 
     briefingRequestKeyRef.current = requestKey;
     setIsBriefingLoading(true);
-    generateMorningBriefing({
-      holdings: symbols,
-      holdingsSnapshot: holdings,
-      cashAvailable: cash,
-      strategyGrowthPct: strategyGrowthPct,
-      strategyFixedPct: strategyFixedPct,
-      persist: false,
-      tradingMode: activeTradingMode.id,
-      focus: "portfolio holdings actions and cash deployment options",
-    })
-      .then((payload) => {
+
+    const HOLDINGS_REFRESH_BUDGET_MS = 28000;
+
+    (async () => {
+      let snapshotHoldings = holdings;
+      if (isInstantDbEnabled && holdings.length > 0) {
+        try {
+          snapshotHoldings = await Promise.race([
+            refreshHoldingsMarketPricesFromQuotes(holdings),
+            new Promise((resolve) => {
+              setTimeout(() => resolve(holdings), HOLDINGS_REFRESH_BUDGET_MS);
+            }),
+          ]);
+        } catch (_error) {
+          snapshotHoldings = holdings;
+        }
+      }
+      if (isCancelled) return;
+      try {
+        const payload = await generateMorningBriefing({
+          holdings: symbols,
+          holdingsSnapshot: snapshotHoldings,
+          cashAvailable: cash,
+          strategyGrowthPct: strategyGrowthPct,
+          strategyFixedPct: strategyFixedPct,
+          persist: false,
+          tradingMode: activeTradingMode.id,
+          focus: "portfolio holdings actions and cash deployment options",
+        });
         if (isCancelled) return;
         setMorningBriefing(payload);
         setBriefingError("");
-      })
-      .catch(async () => {
+      } catch {
         if (isCancelled) return;
         try {
           const fallbackPayload = await fetchLatestMorningBriefing();
@@ -428,11 +449,12 @@ export default function App() {
             "Morning briefing unavailable. Showing local holdings data only.",
           );
         }
-      })
-      .finally(() => {
-        if (isCancelled) return;
-        setIsBriefingLoading(false);
-      });
+      } finally {
+        if (!isCancelled) {
+          setIsBriefingLoading(false);
+        }
+      }
+    })();
 
     return () => {
       isCancelled = true;
@@ -1185,7 +1207,7 @@ export default function App() {
     try {
       await resetPortfolioToCashReserve({
         portfolioId: portfolioRecord.id,
-        cashReserve: 250000,
+        cashReserve: DEFAULT_PORTFOLIO_CASH_USD,
       });
       dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
       closeResetPortfolioModal();

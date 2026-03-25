@@ -1,6 +1,7 @@
 import React from "react";
 import { motion } from "motion/react";
 import { AlertTriangle, X } from "lucide-react";
+import { DEFAULT_PORTFOLIO_CASH_USD } from "../lib/portfolioDefaults";
 
 export const ResetPortfolioModal = ({ isOpen, onClose, onConfirm, isSubmitting = false }) => {
   if (!isOpen) return null;
@@ -38,8 +39,15 @@ export const ResetPortfolioModal = ({ isOpen, onClose, onConfirm, isSubmitting =
 
         <div className="p-8 space-y-6">
           <p className="text-sm font-medium text-slate-700 leading-relaxed">
-            This will reset the database and cannot be recovered. Are you sure you want to
-            proceed?
+            This clears open positions (after your last reset) and sets cash to{" "}
+            <span className="font-bold tabular-nums">
+              {DEFAULT_PORTFOLIO_CASH_USD.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+              })}
+            </span>
+            . Code defaults do not change existing InstantDB balances until you confirm. This
+            cannot be undone. Proceed?
           </p>
 
           <div className="flex gap-3">

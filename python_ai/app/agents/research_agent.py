@@ -66,7 +66,8 @@ class ResearchAgent(FunctionalToolProvider):
             "Use `search_web` for broad internet search and fresh web snippets. "
             "Use `search_investment_news` to gather recent coverage by holdings, sector, "
             "or topic. Use `get_sector_performance` to compare broad sector momentum. "
-            "Use `get_polygon_snapshot` for symbol-level end-of-day context when needed."
+            "Use `get_polygon_snapshot` for symbol-level end-of-day context from Polygon when needed; "
+            "for intraday or current prints, prefer `search_web` / `search_investment_news`."
         )
         skills_context = self._skills.prompt_context(
             max_visible_skills=self._settings.AI_SKILLS_PROMPT_LIMIT

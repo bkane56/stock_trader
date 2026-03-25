@@ -9,6 +9,7 @@ from app.core.market_hours import (
     US_EQUITY_MARKET_HOURS_LABEL,
     is_us_equity_trading_hours_eastern,
 )
+from app.pipeline.holdings_intraday import fetch_holdings_prices_via_web_search
 from app.pipeline.service import (
     generate_and_persist_morning_briefing,
     generate_morning_briefing,
@@ -18,6 +19,11 @@ from app.pipeline.service import (
     latest_recommendation_tools_used,
     latest_pipeline_run_summary,
     runtime_health_details,
+)
+from app.schemas.holdings_quotes import (
+    HoldingsIntradayQuote,
+    HoldingsIntradayRequest,
+    HoldingsIntradayResponse,
 )
 from app.schemas.recommendations import (
     MarketResearchResponse,
@@ -34,7 +40,33 @@ def _parse_symbols_csv(raw: str) -> list[str]:
     return [symbol.strip() for symbol in raw.split(",") if symbol.strip()]
 
 
-def _fetch_quote(symbol: str) -> dict[str, Any]:
+def _polygon_prev_close(normalized_symbol: str, polygon_api_key: str) -> float:
+    """Return previous session close from Polygon /prev; raises on hard failures."""
+    response = httpx.get(
+        f"https://api.polygon.io/v2/aggs/ticker/{normalized_symbol}/prev",
+        params={"adjusted": "true", "apiKey": polygon_api_key},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    response_payload = response.json()
+    results = response_payload.get("results", [])
+    if not isinstance(results, list) or not results:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Polygon did not return previous-close data for {normalized_symbol}.",
+        )
+    previous = results[0]
+    close = previous.get("c")
+    if not isinstance(close, (float, int)):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Polygon close price unavailable for {normalized_symbol}.",
+        )
+    return float(close)
+
+
+def _fetch_quote_previous_close(symbol: str) -> dict[str, Any]:
+    """Prior-day close for both price and previous_close (legacy / paper baseline)."""
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol:
         raise ValueError("symbol is required")
@@ -47,12 +79,7 @@ def _fetch_quote(symbol: str) -> dict[str, Any]:
         )
 
     try:
-        response = httpx.get(
-            f"https://api.polygon.io/v2/aggs/ticker/{normalized_symbol}/prev",
-            params={"adjusted": "true", "apiKey": polygon_api_key},
-            timeout=10.0,
-        )
-        response.raise_for_status()
+        close = _polygon_prev_close(normalized_symbol, polygon_api_key)
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 429:
@@ -70,37 +97,20 @@ def _fetch_quote(symbol: str) -> dict[str, Any]:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Polygon returned an error for {normalized_symbol}.",
         ) from exc
-    except httpx.HTTPError as exc:
+    except httpx.HTTPError:
         cached = _QUOTE_CACHE.get(normalized_symbol)
         if cached:
             return cached
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Unable to reach Polygon for {normalized_symbol}.",
-        ) from exc
-
-    response_payload = response.json()
-    results = response_payload.get("results", [])
-    if not isinstance(results, list) or not results:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Polygon did not return previous-close data for {normalized_symbol}.",
-        )
-
-    previous = results[0]
-    close = previous.get("c")
-    if not isinstance(close, (float, int)):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Polygon close price unavailable for {normalized_symbol}.",
         )
 
     payload = {
         "symbol": normalized_symbol,
         "name": normalized_symbol,
-        # Intentional: for paper fills we want last available close.
-        "price": float(close),
-        "previous_close": float(close),
+        "price": close,
+        "previous_close": close,
         "currency": "USD",
         "source": "polygon_prev_close",
     }
@@ -137,8 +147,26 @@ def get_recommendations(
 
 
 @router.get("/quotes/{symbol}")
-def get_quote(symbol: str) -> dict[str, Any]:
-    return _fetch_quote(symbol)
+def get_quote(
+    symbol: str,
+    price_mode: str = Query(
+        default="live",
+        pattern="^(live|previous_close)$",
+        description=(
+            "Polygon is previous session close only on many tiers. "
+            "Use POST /quotes/holdings/intraday for web-search-based marks on a refresh cadence."
+        ),
+    ),
+) -> dict[str, Any]:
+    _ = price_mode  # Accepted for API compatibility; both modes map to Polygon /prev only.
+    return _fetch_quote_previous_close(symbol)
+
+
+@router.post("/quotes/holdings/intraday", response_model=HoldingsIntradayResponse)
+def post_holdings_intraday_prices(payload: HoldingsIntradayRequest) -> HoldingsIntradayResponse:
+    rows = fetch_holdings_prices_via_web_search(list(payload.symbols))
+    quotes = [HoldingsIntradayQuote(**row) for row in rows]
+    return HoldingsIntradayResponse(quotes=quotes)
 
 
 @router.get("/research", response_model=MarketResearchResponse)

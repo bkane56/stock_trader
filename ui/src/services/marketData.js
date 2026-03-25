@@ -6,6 +6,53 @@ function apiBaseUrl() {
   return raw.replace(/\/$/, "");
 }
 
+/** Base URL for the Python AI API (used by quotes, briefings, holdings refresh). */
+export function getPythonAiBaseUrl() {
+  return apiBaseUrl();
+}
+
+/** Max time to wait for web-search batch pricing before falling back (avoids stuck "Loading briefing…"). */
+const HOLDINGS_INTRADAY_FETCH_MS = 35000;
+
+/**
+ * Batch refresh: Serper web search + LLM extraction for current marks (Polygon is EOD-only on many tiers).
+ * @param {string[]} symbols
+ * @returns {Promise<Array<{ symbol: string, price: number, previous_close: number, source: string }>>}
+ */
+export async function fetchHoldingsIntradayQuotes(symbols) {
+  const uniq = [
+    ...new Set(
+      (symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean),
+    ),
+  ];
+  if (!uniq.length) return [];
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), HOLDINGS_INTRADAY_FETCH_MS);
+  let response;
+  try {
+    response = await fetch(`${getPythonAiBaseUrl()}/quotes/holdings/intraday`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: uniq }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const payload = await response.json();
+      detail = String(payload?.detail || "").trim();
+    } catch (_error) {
+      detail = "";
+    }
+    throw new Error(detail || `Unable to refresh holdings quotes (${response.status}).`);
+  }
+  const data = await response.json();
+  return Array.isArray(data.quotes) ? data.quotes : [];
+}
+
 function todayCacheStamp() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -59,6 +106,14 @@ export async function fetchSymbolQuote(symbol, options = {}) {
     throw new Error("Symbol is required.");
   }
   const pricingProfile = String(options?.pricingProfile || "live").toLowerCase();
+  let priceMode = String(options?.priceMode || "live").toLowerCase();
+  if (pricingProfile === "basic" && options?.priceMode === undefined) {
+    priceMode = "previous_close";
+  }
+  const priceModeParam = priceMode === "previous_close" ? "previous_close" : "live";
+  const quoteUrl = `${apiBaseUrl()}/quotes/${encodeURIComponent(normalized)}?price_mode=${encodeURIComponent(
+    priceModeParam,
+  )}`;
 
   if (pricingProfile === "basic") {
     const cached = readCachedClose(normalized);
@@ -67,7 +122,7 @@ export async function fetchSymbolQuote(symbol, options = {}) {
     }
   }
 
-  const response = await fetch(`${apiBaseUrl()}/quotes/${encodeURIComponent(normalized)}`);
+  const response = await fetch(quoteUrl);
   if (!response.ok) {
     let detail = "";
     try {

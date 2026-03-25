@@ -1,8 +1,9 @@
 import { computeCashAdjustment } from "../lib/cashAdjustments";
 import { resolveCompanyName } from "../lib/companyNames";
+import { DEFAULT_PORTFOLIO_CASH_USD } from "../lib/portfolioDefaults";
 import { clampPercentage, strategyFromGrowth } from "../lib/portfolioMetrics";
 
-const INITIAL_CASH = 250000;
+const INITIAL_CASH = DEFAULT_PORTFOLIO_CASH_USD;
 const DEFAULT_GROWTH_PCT = 60;
 const defaultStrategy = strategyFromGrowth(DEFAULT_GROWTH_PCT);
 

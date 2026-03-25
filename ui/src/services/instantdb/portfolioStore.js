@@ -1,9 +1,11 @@
 import { computeCashAdjustment } from "../../lib/cashAdjustments";
 import { resolveCompanyName } from "../../lib/companyNames";
+import { DEFAULT_PORTFOLIO_CASH_USD } from "../../lib/portfolioDefaults";
 import { clampPercentage, strategyFromGrowth } from "../../lib/portfolioMetrics";
+import { fetchHoldingsIntradayQuotes } from "../marketData";
 import { instantDb, instantId } from "./client";
 
-const DEFAULT_CASH_RESERVE = 250000;
+const DEFAULT_CASH_RESERVE = DEFAULT_PORTFOLIO_CASH_USD;
 const DEFAULT_GROWTH_PCT = 60;
 
 function formatDate(isoOrMs) {
@@ -501,6 +503,64 @@ export async function executeTrade({
   }
 
   await instantDb.transact(txs);
+}
+
+/**
+ * Refresh marks via Serper web search + LLM (batch API); Polygon alone is often prior close only.
+ * Persists `updatedPrice` and returns snapshot rows for the briefing (same cadence as research refresh).
+ */
+export async function refreshHoldingsMarketPricesFromQuotes(holdings) {
+  if (!instantDb || !Array.isArray(holdings) || holdings.length === 0) {
+    return holdings;
+  }
+  const symbols = [
+    ...new Set(
+      holdings.map((h) => String(h.symbol || "").trim().toUpperCase()).filter(Boolean),
+    ),
+  ];
+  let quotes;
+  try {
+    quotes = await fetchHoldingsIntradayQuotes(symbols);
+  } catch (_error) {
+    return holdings;
+  }
+  const bySymbol = Object.fromEntries(
+    (quotes || []).map((q) => [String(q.symbol || "").toUpperCase(), q]),
+  );
+  const txs = [];
+  const nextSnapshot = [];
+  for (const h of holdings) {
+    const sym = String(h.symbol || "").trim().toUpperCase();
+    const id = h.id;
+    if (!sym) {
+      nextSnapshot.push(h);
+      continue;
+    }
+    const q = bySymbol[sym];
+    const price = q ? Number(q.price) || 0 : 0;
+    if (price <= 0) {
+      nextSnapshot.push(h);
+      continue;
+    }
+    const shares = Number(h.shares) || 0;
+    if (id) {
+      txs.push(
+        instantDb.tx.positions[id].update({
+          updatedPrice: price,
+          updatedAt: Date.now(),
+        })
+      );
+    }
+    nextSnapshot.push({
+      ...h,
+      price,
+      totalValue: shares * price,
+    });
+  }
+  if (txs.length) {
+    await instantDb.transact(txs);
+  }
+  return nextSnapshot.length ? nextSnapshot : holdings;
 }
 
 export async function resetPortfolioToCashReserve({
