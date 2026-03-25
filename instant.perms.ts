@@ -59,6 +59,18 @@ const rules = {
         "auth.id != null && auth.id in data.ref('portfolio.owner.userId')",
     },
   },
+  company_names: {
+    allow: {
+      view: "isOwner",
+      create: "isOwner",
+      update: "isOwner && isStillOwner",
+      delete: "isOwner",
+    },
+    bind: {
+      isOwner: "auth.id != null && auth.id == data.userId",
+      isStillOwner: "auth.id != null && auth.id == newData.userId",
+    },
+  },
 } satisfies InstantRules;
 
 export default rules;

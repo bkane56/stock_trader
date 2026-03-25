@@ -49,6 +49,7 @@ const _schema = i.schema({
       shares: i.number().optional(),
       price: i.number().optional(),
       amount: i.number(),
+      transactionFee: i.number().optional(),
       status: i.string(),
       eventAt: i.date(),
     }),

@@ -17,9 +17,19 @@ function formatDate(isoOrMs) {
   });
 }
 
+/** Normalize InstantDB `i.date()` values (ms, ISO string, or Date) for comparisons. */
+function coerceTimestampMs(value) {
+  if (value == null) return 0;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const n = Number(value);
+  if (Number.isFinite(n)) return n;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function isRecordAfterReset(recordTime, resetAt) {
   if (!resetAt) return true;
-  return Number(recordTime || 0) >= Number(resetAt);
+  return coerceTimestampMs(recordTime) >= coerceTimestampMs(resetAt);
 }
 
 function isTickerOnlyName(symbol, name) {
@@ -566,12 +576,17 @@ export async function refreshHoldingsMarketPricesFromQuotes(holdings) {
 export async function resetPortfolioToCashReserve({
   portfolioId,
   cashReserve = DEFAULT_CASH_RESERVE,
+  positionIds = [],
 }) {
   if (!instantDb || !portfolioId) return;
   const now = Date.now();
   const { strategyGrowthPct, strategyFixedPct } = strategyFromGrowth(DEFAULT_GROWTH_PCT);
 
+  const deletes = (positionIds || [])
+    .filter(Boolean)
+    .map((id) => instantDb.tx.positions[id].delete());
   const resetTxs = [
+    ...deletes,
     instantDb.tx.portfolios[portfolioId].update({
       cashReserve,
       strategyGrowthPct,
@@ -581,7 +596,5 @@ export async function resetPortfolioToCashReserve({
     }),
   ];
 
-  if (resetTxs.length) {
-    await instantDb.transact(resetTxs);
-  }
+  await instantDb.transact(resetTxs);
 }

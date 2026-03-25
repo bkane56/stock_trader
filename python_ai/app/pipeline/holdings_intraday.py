@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -20,6 +21,9 @@ from app.core.config import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 _MAX_SYMBOLS = 15
+# Process-local cache to avoid hammering Polygon /prev (free tier → HTTP 429) on repeated UI refreshes.
+_POLYGON_PREV_TTL_SEC = 300.0
+_polygon_prev_cache: dict[str, tuple[float, float]] = {}
 
 
 def _polygon_prev_close_http(normalized_symbol: str, polygon_api_key: str) -> float | None:
@@ -42,11 +46,23 @@ def _polygon_prev_close_http(normalized_symbol: str, polygon_api_key: str) -> fl
     return None
 
 
+def _polygon_prev_close_cached(normalized_symbol: str, polygon_api_key: str) -> float | None:
+    """Return Polygon previous close with a short TTL to reduce duplicate /prev calls."""
+    now = time.time()
+    cached = _polygon_prev_cache.get(normalized_symbol)
+    if cached is not None and (now - cached[1]) < _POLYGON_PREV_TTL_SEC:
+        return cached[0]
+    prev = _polygon_prev_close_http(normalized_symbol, polygon_api_key)
+    if prev is not None:
+        _polygon_prev_cache[normalized_symbol] = (prev, now)
+    return prev
+
+
 def _quotes_polygon_only(symbols: list[str], settings: Settings) -> list[dict[str, Any]]:
     key = settings.POLYGON_API_KEY.strip()
     out: list[dict[str, Any]] = []
     for sym in symbols:
-        prev = _polygon_prev_close_http(sym, key) if key else None
+        prev = _polygon_prev_close_cached(sym, key) if key else None
         if prev is None:
             continue
         out.append(
@@ -149,25 +165,26 @@ def fetch_holdings_prices_via_web_search(symbols: list[str]) -> list[dict[str, A
             if m:
                 price_f = float(m.group(1))
 
-        prev = _polygon_prev_close_http(sym, polygon_key) if polygon_key else None
+        if price_f is not None and price_f > 0:
+            out.append(
+                {
+                    "symbol": sym,
+                    "price": price_f,
+                    "previous_close": price_f,
+                    "source": "web_search_llm",
+                }
+            )
+            continue
 
-        if price_f is None or price_f <= 0:
-            if prev is not None:
-                price_f = prev
-                src = "polygon_prev_close_fallback"
-            else:
-                continue
-        else:
-            src = "web_search_llm"
-
-        pc = float(prev) if prev is not None else price_f
-        out.append(
-            {
-                "symbol": sym,
-                "price": price_f,
-                "previous_close": pc,
-                "source": src,
-            }
-        )
+        prev = _polygon_prev_close_cached(sym, polygon_key) if polygon_key else None
+        if prev is not None:
+            out.append(
+                {
+                    "symbol": sym,
+                    "price": prev,
+                    "previous_close": prev,
+                    "source": "polygon_prev_close_fallback",
+                }
+            )
 
     return out

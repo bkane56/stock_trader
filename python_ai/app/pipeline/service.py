@@ -470,30 +470,54 @@ def _build_cash_deployment_options(
     return options
 
 
-def _build_execution_recommendations(
-    *,
+def _should_suppress_new_buys(
     holdings_actions: list[HoldingAction],
-    cash_deployment_options: list[CashDeploymentOption],
     holdings_snapshot: list[HoldingSnapshot],
-    deployable_cash_budget: float,
-) -> list[ExecutionRecommendation]:
-    if not cash_deployment_options:
-        return []
+) -> bool:
+    """Skip scheduling new purchases when every held position looks healthy (hold/add)."""
+    held = [
+        row
+        for row in holdings_snapshot
+        if row.symbol and row.shares > 0 and row.price > 0
+    ]
+    if not held:
+        return False
+    action_by_symbol = {row.symbol.upper(): row for row in holdings_actions}
+    for snap in held:
+        sym = snap.symbol.upper()
+        action = action_by_symbol.get(sym)
+        if action is None:
+            return False
+        if action.action in ("sell", "trim", "watch"):
+            return False
+        if action.action == "hold" and float(action.confidence) < 0.52:
+            return False
+        if action.action == "add" and float(action.confidence) < 0.45:
+            return False
+    return True
 
+
+def _collect_rotation_sell_candidates(
+    holdings_actions: list[HoldingAction],
+    holdings_snapshot: list[HoldingSnapshot],
+    *,
+    exclude_symbols: set[str] | None = None,
+) -> list[dict[str, Any]]:
     holdings_by_symbol = {
         row.symbol.upper(): row
         for row in holdings_snapshot
         if row.symbol and row.shares > 0 and row.price > 0
     }
     action_by_symbol = {row.symbol.upper(): row for row in holdings_actions}
+    blocked = {s.upper() for s in (exclude_symbols or set())}
 
     sell_candidates: list[dict[str, Any]] = []
     for symbol, snapshot in holdings_by_symbol.items():
+        if symbol in blocked:
+            continue
         action = action_by_symbol.get(symbol)
         if action is None:
             continue
-        # Prioritize explicit sell/trim signals, then allow weaker names as backup
-        # when cash deployment needs rotation funding.
         confidence = float(action.confidence)
         if action.action == "sell":
             priority = 0
@@ -531,6 +555,64 @@ def _build_execution_recommendations(
             -float(row["confidence"]),
             -float(row["remaining_shares"] * row["price"]),
         )
+    )
+    return sell_candidates
+
+
+def _build_sell_only_execution_recommendations(
+    holdings_actions: list[HoldingAction],
+    holdings_snapshot: list[HoldingSnapshot],
+) -> list[ExecutionRecommendation]:
+    """Standalone sells/trims for weak names — runs even when no new buys are scheduled."""
+    candidates = _collect_rotation_sell_candidates(
+        holdings_actions,
+        holdings_snapshot,
+        exclude_symbols=None,
+    )
+    rows: list[ExecutionRecommendation] = []
+    for c in candidates:
+        shares = float(c["remaining_shares"])
+        if shares <= 0:
+            continue
+        sym = str(c["symbol"])
+        sell_leg = SellLeg(
+            symbol=sym,
+            name=str(c["name"] or sym),
+            shares=round(shares, 4),
+            estimated_price=float(c["price"]),
+            reason=str(c["reason"] or "").strip() or "Reduce or exit per research stance.",
+        )
+        rows.append(
+            ExecutionRecommendation(
+                key=f"{sym.upper()}:sell_only:{c['action']}",
+                summary=(
+                    f"Sell {sell_leg.name} ({sym.upper()}) — {sell_leg.shares:,.4f} sh "
+                    f"({str(c['action']).upper()}) because {sell_leg.reason}"
+                ),
+                buy=None,
+                sell_leg=sell_leg,
+                requires_rotation=False,
+                is_sell_only=True,
+            )
+        )
+    return rows
+
+
+def _build_execution_recommendations(
+    *,
+    holdings_actions: list[HoldingAction],
+    cash_deployment_options: list[CashDeploymentOption],
+    holdings_snapshot: list[HoldingSnapshot],
+    deployable_cash_budget: float,
+    exclude_rotation_symbols: set[str] | None = None,
+) -> list[ExecutionRecommendation]:
+    if not cash_deployment_options:
+        return []
+
+    sell_candidates = _collect_rotation_sell_candidates(
+        holdings_actions,
+        holdings_snapshot,
+        exclude_symbols=exclude_rotation_symbols,
     )
 
     available_cash = max(0.0, float(deployable_cash_budget))
@@ -1314,18 +1396,29 @@ def generate_morning_briefing(
     deployable_cash_budget = round(max(0.0, safe_cash_available - reserve_cash_target), 2)
     min_cash_to_deploy = max(0.0, float(settings.MORNING_BRIEFING_MIN_CASH))
     can_deploy = deployable_cash_budget >= min_cash_to_deploy
+    new_buys_deferred = _should_suppress_new_buys(
+        holdings_actions, holdings_snapshot or []
+    )
     known_names_by_symbol = {
         row.symbol.upper(): row.name.strip()
         for row in (holdings_snapshot or [])
         if row.symbol and row.name and row.name.strip()
     }
+    buy_candidates: list[StockIdea] = []
+    if not new_buys_deferred:
+        buy_candidates = research.top_3_buys if can_deploy else []
     cash_deployment_options = _build_cash_deployment_options(
-        candidates=research.top_3_buys if can_deploy else [],
+        candidates=buy_candidates,
         deployable_cash_budget=deployable_cash_budget,
         strategy_growth_pct=clamped_growth_pct,
         known_names_by_symbol=known_names_by_symbol,
     )
-    if not cash_deployment_options and research.top_3_buys and (holdings_snapshot or []):
+    if (
+        not cash_deployment_options
+        and not new_buys_deferred
+        and research.top_3_buys
+        and (holdings_snapshot or [])
+    ):
         rotation_target_budget = max(min_cash_to_deploy, 0.0)
         cash_deployment_options = _build_cash_deployment_options(
             candidates=research.top_3_buys,
@@ -1333,12 +1426,28 @@ def generate_morning_briefing(
             strategy_growth_pct=clamped_growth_pct,
             known_names_by_symbol=known_names_by_symbol,
         )
-    execution_recommendations = _build_execution_recommendations(
+
+    # Standalone sells only when no buy/rotation rows are scheduled — otherwise
+    # _build_execution_recommendations handles sell-then-buy in one execution row.
+    sell_only_rows: list[ExecutionRecommendation] = []
+    if not cash_deployment_options:
+        sell_only_rows = _build_sell_only_execution_recommendations(
+            holdings_actions=holdings_actions,
+            holdings_snapshot=holdings_snapshot or [],
+        )
+    rotation_excluded = {
+        str(row.sell_leg.symbol).upper()
+        for row in sell_only_rows
+        if row.sell_leg is not None
+    }
+    buy_execution_rows = _build_execution_recommendations(
         holdings_actions=holdings_actions,
         cash_deployment_options=cash_deployment_options,
         holdings_snapshot=holdings_snapshot or [],
         deployable_cash_budget=deployable_cash_budget,
+        exclude_rotation_symbols=rotation_excluded,
     )
+    execution_recommendations = [*sell_only_rows, *buy_execution_rows]
 
     execution_mode = {
         "manual_user": "manual",
@@ -1348,6 +1457,7 @@ def generate_morning_briefing(
 
     return MorningBriefingResponse(
         execution_mode=execution_mode,
+        new_buys_deferred=new_buys_deferred,
         holdings_actions=holdings_actions,
         cash_deployment_options=cash_deployment_options,
         cash_available=safe_cash_available,

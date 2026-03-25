@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Recommendation(BaseModel):
@@ -101,9 +101,21 @@ class SellLeg(BaseModel):
 class ExecutionRecommendation(BaseModel):
     key: str
     summary: str
-    buy: CashDeploymentOption
+    buy: CashDeploymentOption | None = None
     sell_leg: SellLeg | None = None
     requires_rotation: bool = False
+    is_sell_only: bool = False
+
+    @model_validator(mode="after")
+    def _buy_present_unless_sell_only(self) -> "ExecutionRecommendation":
+        if self.is_sell_only:
+            if self.sell_leg is None:
+                raise ValueError("is_sell_only rows require sell_leg")
+            if self.buy is not None:
+                raise ValueError("is_sell_only rows must not include buy")
+        elif self.buy is None:
+            raise ValueError("execution rows require buy unless is_sell_only")
+        return self
 
 
 class RiskFlag(BaseModel):
@@ -116,6 +128,10 @@ class MorningBriefingResponse(BaseModel):
     execution_mode: str = Field(
         default="manual",
         pattern="^(manual|assisted|autonomous)$",
+    )
+    new_buys_deferred: bool = Field(
+        default=False,
+        description="True when existing holdings look healthy — no new purchases were scheduled.",
     )
     holdings_actions: list[HoldingAction]
     cash_deployment_options: list[CashDeploymentOption]

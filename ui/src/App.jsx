@@ -115,6 +115,14 @@ const THEME_MODE_STORAGE_KEY = "investai.themeMode";
 const AUTONOMOUS_MIN_SECURITIES = 4;
 const AUTONOMOUS_MAX_SECURITIES = 10;
 const AUTONOMOUS_MAX_FEE_RATIO = 0.02;
+/** Let InstantDB + React hydrate cash/holdings between sequential autonomous orders (and after sell legs). */
+const AUTONOMOUS_PORTFOLIO_SETTLE_MS = 280;
+
+function waitMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 function normalizeExperienceMode(mode) {
   return EXPERIENCE_MODES.some((option) => option.id === mode)
@@ -246,6 +254,16 @@ export default function App() {
     () => calculatePortfolioMetrics(holdings, cash),
     [holdings, cash]
   );
+  const holdingsRef = useRef(holdings);
+  holdingsRef.current = holdings;
+  const holdingsStructureKey = useMemo(
+    () =>
+      holdings
+        .map((h) => `${h.id || ""}:${String(h.symbol || "").trim().toUpperCase()}`)
+        .sort()
+        .join("|"),
+    [holdings]
+  );
   const totalValue = metrics.totalValue;
   const activeTradingMode = useMemo(() => getTradingMode(tradingMode), [tradingMode]);
   const isAutonomousMode = activeTradingMode.id === "autonomous_agent";
@@ -276,6 +294,8 @@ export default function App() {
   const portfolioOwnerLinkRef = useRef(new Set());
   const briefingRequestKeyRef = useRef("");
   const autonomousExecutionRef = useRef(new Set());
+  /** Latest portfolio context for trades (avoids stale closures in back-to-back autonomous orders). */
+  const portfolioTradeContextRef = useRef(null);
 
   const userProfileRecord = useMemo(() => {
     if (!portfolioQuery?.data || !signedInUser) return null;
@@ -337,6 +357,17 @@ export default function App() {
     );
   }, [portfolioQuery?.data?.company_names, signedInUser?.id]);
 
+  portfolioTradeContextRef.current = {
+    cash,
+    totalValue,
+    holdings,
+    portfolioRecord: activePortfolioRecord,
+    portfolioQueryData: portfolioQuery?.data ?? null,
+    userCompanyNameRecords,
+    signedInUser,
+    portfolioQueryIsLoading: Boolean(portfolioQuery?.isLoading),
+  };
+
   useEffect(() => {
     const root = document.documentElement;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -377,9 +408,10 @@ export default function App() {
       };
     }
 
+    const currentHoldings = holdingsRef.current;
     const symbols = Array.from(
       new Set(
-        holdings
+        currentHoldings
           .map((holding) => String(holding.symbol || "").trim().toUpperCase())
           .filter(Boolean)
       )
@@ -406,17 +438,17 @@ export default function App() {
     const HOLDINGS_REFRESH_BUDGET_MS = 28000;
 
     (async () => {
-      let snapshotHoldings = holdings;
-      if (isInstantDbEnabled && holdings.length > 0) {
+      let snapshotHoldings = currentHoldings;
+      if (isInstantDbEnabled && currentHoldings.length > 0) {
         try {
           snapshotHoldings = await Promise.race([
-            refreshHoldingsMarketPricesFromQuotes(holdings),
+            refreshHoldingsMarketPricesFromQuotes(currentHoldings),
             new Promise((resolve) => {
-              setTimeout(() => resolve(holdings), HOLDINGS_REFRESH_BUDGET_MS);
+              setTimeout(() => resolve(currentHoldings), HOLDINGS_REFRESH_BUDGET_MS);
             }),
           ]);
         } catch (_error) {
-          snapshotHoldings = holdings;
+          snapshotHoldings = currentHoldings;
         }
       }
       if (isCancelled) return;
@@ -462,7 +494,7 @@ export default function App() {
   }, [
     briefingRefreshNonce,
     cash,
-    holdings,
+    holdingsStructureKey,
     isHydrated,
     isInstantDbEnabled,
     strategyGrowthPct,
@@ -743,6 +775,143 @@ export default function App() {
     persistThemeMode(normalizedTheme);
   };
   const submitRecommendationOrder = async ({ key, recommendation, sourceMode }) => {
+    const snap = portfolioTradeContextRef.current || {};
+    let tradeHoldings = Array.isArray(snap.holdings) ? snap.holdings : holdings;
+    let tradeCash = typeof snap.cash === "number" ? snap.cash : cash;
+    let tradeTotalValue = typeof snap.totalValue === "number" ? snap.totalValue : totalValue;
+
+    const isAutonomousSource = sourceMode === "autonomous_agent";
+    const perTradeFee = TRANSACTION_FEE_USD;
+    const isSellOnly = Boolean(recommendation?.is_sell_only) && recommendation?.sell_leg;
+
+    const resolveQuote = async (quoteSymbol) => {
+      const normalized = String(quoteSymbol || "").trim().toUpperCase();
+      try {
+        return await fetchSymbolQuote(normalized, {
+          pricingProfile: experienceMode === "basic" ? "basic" : "live",
+        });
+      } catch (_quoteError) {
+        const rows = portfolioTradeContextRef.current?.holdings || tradeHoldings || holdings || [];
+        const holdingMatch = rows.find(
+          (holding) => String(holding?.symbol || "").toUpperCase() === normalized
+        );
+        if (holdingMatch && Number(holdingMatch.price) > 0) {
+          return {
+            symbol: normalized,
+            name: holdingMatch.name || normalized,
+            price: Number(holdingMatch.price),
+            previous_close: Number(holdingMatch.price),
+          };
+        }
+        throw _quoteError;
+      }
+    };
+
+    if (isSellOnly) {
+      const leg = recommendation.sell_leg;
+      const sellSym = String(leg.symbol || "").trim().toUpperCase();
+      const sellShares = Number(leg.shares) || 0;
+      if (!sellSym || sellShares <= 0) {
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_STATUS",
+          payload: { key, status: "failed" },
+        });
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_ERROR",
+          payload: { key, error: "Invalid sell-only recommendation (symbol or shares)." },
+        });
+        return;
+      }
+      const holdingSymbols = new Set(
+        (tradeHoldings || [])
+          .map((h) => String(h?.symbol || "").trim().toUpperCase())
+          .filter(Boolean),
+      );
+      if (
+        isAutonomousSource &&
+        holdingSymbols.size <= AUTONOMOUS_MIN_SECURITIES &&
+        holdingSymbols.has(sellSym)
+      ) {
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_STATUS",
+          payload: { key, status: "failed" },
+        });
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_ERROR",
+          payload: {
+            key,
+            error: `Autonomous guardrail: keep at least ${AUTONOMOUS_MIN_SECURITIES} active securities.`,
+          },
+        });
+        return;
+      }
+      try {
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_STATUS",
+          payload: { key, status: "submitting" },
+        });
+        const sellQuote = await resolveQuote(sellSym);
+        const sellMarketPrice = Number(sellQuote?.price) || 0;
+        const sellPreviousClose = Number(sellQuote?.previous_close) || 0;
+        const isWeekend = [0, 6].includes(new Date().getDay());
+        const sellExecutionPrice = isWeekend
+          ? sellPreviousClose || sellMarketPrice
+          : sellMarketPrice || sellPreviousClose;
+        if (!sellExecutionPrice || sellExecutionPrice <= 0) {
+          throw new Error(`Price unavailable for ${sellSym}.`);
+        }
+        const sellHolding = (tradeHoldings || []).find(
+          (holding) => String(holding?.symbol || "").toUpperCase() === sellSym,
+        );
+        const resolvedSellName = resolveCompanyName(
+          sellSym,
+          sellHolding?.name || sellQuote?.name || sellSym,
+        );
+        const sellPlaced = await handleExecuteTrade(
+          {
+            type: "SELL_FROM_HOLDING",
+            payload: {
+              symbol: sellSym,
+              name: resolvedSellName,
+              sector: String(sellHolding?.sector || "Other"),
+              price: sellExecutionPrice,
+              shares: sellShares,
+              transactionFee: perTradeFee,
+            },
+          },
+          { allowAutonomous: isAutonomousSource },
+        );
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_STATUS",
+          payload: { key, status: sellPlaced ? "submitted" : "failed" },
+        });
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_ERROR",
+          payload: {
+            key,
+            error: sellPlaced
+              ? ""
+              : `Sell was rejected for ${sellSym}. Check the sync error banner.`,
+          },
+        });
+      } catch (error) {
+        const message = error?.message || `Unable to execute sell for ${sellSym}.`;
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_STATUS",
+          payload: { key, status: "failed" },
+        });
+        dispatch({
+          type: "SET_RECOMMENDATION_ORDER_ERROR",
+          payload: { key, error: message },
+        });
+        dispatch({
+          type: "SET_PORTFOLIO_SYNC_ERROR",
+          payload: message,
+        });
+      }
+      return;
+    }
+
     const buyRecommendation = recommendation?.buy || recommendation;
     const symbol = String(buyRecommendation?.symbol || "").trim().toUpperCase();
     if (!symbol) {
@@ -764,13 +933,11 @@ export default function App() {
       return;
     }
 
-    const isAutonomousSource = sourceMode === "autonomous_agent";
-    const perTradeFee = TRANSACTION_FEE_USD;
     const buyConfidence = Math.max(0, Number(buyRecommendation?.confidence) || 0);
     const activeHoldingSymbols = new Set(
-      (holdings || [])
+      (tradeHoldings || [])
         .map((holding) => String(holding?.symbol || "").trim().toUpperCase())
-        .filter(Boolean)
+        .filter(Boolean),
     );
     const wouldAddNewSymbol = !activeHoldingSymbols.has(symbol);
     if (
@@ -849,27 +1016,6 @@ export default function App() {
       });
       return;
     }
-    const resolveQuote = async (quoteSymbol) => {
-      const normalized = String(quoteSymbol || "").trim().toUpperCase();
-      try {
-        return await fetchSymbolQuote(normalized, {
-          pricingProfile: experienceMode === "basic" ? "basic" : "live",
-        });
-      } catch (_quoteError) {
-        const holdingMatch = (holdings || []).find(
-          (holding) => String(holding?.symbol || "").toUpperCase() === normalized
-        );
-        if (holdingMatch && Number(holdingMatch.price) > 0) {
-          return {
-            symbol: normalized,
-            name: holdingMatch.name || normalized,
-            price: Number(holdingMatch.price),
-            previous_close: Number(holdingMatch.price),
-          };
-        }
-        throw _quoteError;
-      }
-    };
 
     try {
       dispatch({
@@ -893,12 +1039,12 @@ export default function App() {
         if (!sellExecutionPrice || sellExecutionPrice <= 0) {
           throw new Error(`Price unavailable for ${sellSymbol}.`);
         }
-        const sellHolding = (holdings || []).find(
-          (holding) => String(holding?.symbol || "").toUpperCase() === sellSymbol
+        const sellHolding = (tradeHoldings || []).find(
+          (holding) => String(holding?.symbol || "").toUpperCase() === sellSymbol,
         );
         const resolvedSellName = resolveCompanyName(
           sellSymbol,
-          sellHolding?.name || sellQuote?.name || sellSymbol
+          sellHolding?.name || sellQuote?.name || sellSymbol,
         );
         const sellPlaced = await handleExecuteTrade(
           {
@@ -921,9 +1067,14 @@ export default function App() {
           0,
           sellShares * sellExecutionPrice - perTradeFee,
         );
+        await waitMs(AUTONOMOUS_PORTFOLIO_SETTLE_MS);
+        const postSell = portfolioTradeContextRef.current || {};
+        if (typeof postSell.cash === "number") tradeCash = postSell.cash;
+        if (typeof postSell.totalValue === "number") tradeTotalValue = postSell.totalValue;
+        if (Array.isArray(postSell.holdings)) tradeHoldings = postSell.holdings;
       }
-      const reserveFloor = Math.max(0, Number(totalValue) * 0.1);
-      const spendableCash = Math.max(0, cash - reserveFloor);
+      const reserveFloor = Math.max(0, Number(tradeTotalValue) * 0.1);
+      const spendableCash = Math.max(0, tradeCash - reserveFloor);
       const budget = Math.min(
         Math.max(0, suggestedAmount),
         spendableCash + additionalFundsFromSell,
@@ -1033,8 +1184,9 @@ export default function App() {
 
     let isCancelled = false;
     const runAutonomousOrders = async () => {
-      for (const recommendation of recommendations) {
+      for (let i = 0; i < recommendations.length; i += 1) {
         if (isCancelled) break;
+        const recommendation = recommendations[i];
         const recKey = String(
           recommendation?.key ||
             `${recommendation?.buy?.symbol || recommendation?.symbol || ""}:${
@@ -1051,6 +1203,10 @@ export default function App() {
           type: "SET_RECOMMENDATION_DECISION",
           payload: { key: recKey, decision: "accepted" },
         });
+
+        if (i > 0) {
+          await waitMs(AUTONOMOUS_PORTFOLIO_SETTLE_MS);
+        }
 
         await submitRecommendationOrder({
           key: recKey,
@@ -1083,7 +1239,17 @@ export default function App() {
       dispatch(action);
       return true;
     }
-    if (!signedInUser || portfolioQuery.isLoading || !portfolioQuery.data) {
+    const tradeSnap = portfolioTradeContextRef.current || {};
+    const execUser = tradeSnap.signedInUser ?? signedInUser;
+    const execQueryData = tradeSnap.portfolioQueryData ?? portfolioQuery.data;
+    const execQueryLoading = Boolean(tradeSnap.portfolioQueryIsLoading ?? portfolioQuery.isLoading);
+    const portfolioRecord = tradeSnap.portfolioRecord ?? activePortfolioRecord;
+    const execTotalValue =
+      typeof tradeSnap.totalValue === "number" ? tradeSnap.totalValue : totalValue;
+    const execCash = typeof tradeSnap.cash === "number" ? tradeSnap.cash : cash;
+    const execCompanyNames = tradeSnap.userCompanyNameRecords ?? userCompanyNameRecords;
+
+    if (!execUser || execQueryLoading || !execQueryData) {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
         payload: "Portfolio not ready yet. Please retry in a moment.",
@@ -1091,7 +1257,6 @@ export default function App() {
       return false;
     }
 
-    const portfolioRecord = activePortfolioRecord;
     if (!portfolioRecord) {
       dispatch({
         type: "SET_PORTFOLIO_SYNC_ERROR",
@@ -1100,16 +1265,16 @@ export default function App() {
       return false;
     }
 
-    const { positions } = pickPortfolioData(portfolioQuery.data, portfolioRecord.id);
+    const { positions } = pickPortfolioData(execQueryData, portfolioRecord.id);
     const activePositions = filterActivePositions(positions, portfolioRecord.resetAt);
     const mode = action.type === "BUY_ADD_HOLDING" ? "buy" : "sell";
     const transactionFee = Math.max(0, Number(action?.payload?.transactionFee ?? TRANSACTION_FEE_USD) || 0);
     if (mode === "buy" && action?.payload?.enforceReserve !== false) {
-      const reserveFloor = Math.max(0, Number(totalValue) * 0.1);
+      const reserveFloor = Math.max(0, Number(execTotalValue) * 0.1);
       const buyCost =
         (Number(action?.payload?.price) || 0) * (Number(action?.payload?.shares) || 0) +
         transactionFee;
-      if (buyCost > Math.max(0, Number(cash) - reserveFloor)) {
+      if (buyCost > Math.max(0, Number(execCash) - reserveFloor)) {
         dispatch({
           type: "SET_PORTFOLIO_SYNC_ERROR",
           payload: "Order blocked: this buy would push cash below your reserve target.",
@@ -1122,7 +1287,7 @@ export default function App() {
       await executeTrade({
         portfolio: portfolioRecord,
         positions: activePositions,
-        companyNameRecords: userCompanyNameRecords,
+        companyNameRecords: execCompanyNames,
         mode,
         transactionFee,
         ...action.payload,
@@ -1205,9 +1370,15 @@ export default function App() {
 
     dispatch({ type: "SET_PORTFOLIO_SYNCING", payload: true });
     try {
+      const { positions: portfolioPositions } = pickPortfolioData(
+        portfolioQuery.data,
+        portfolioRecord.id
+      );
+      const positionIds = portfolioPositions.map((p) => p.id).filter(Boolean);
       await resetPortfolioToCashReserve({
         portfolioId: portfolioRecord.id,
         cashReserve: DEFAULT_PORTFOLIO_CASH_USD,
+        positionIds,
       });
       dispatch({ type: "SET_PORTFOLIO_SYNC_ERROR", payload: "" });
       closeResetPortfolioModal();
