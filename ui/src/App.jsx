@@ -99,11 +99,13 @@ const EXPERIENCE_MODE_STORAGE_KEY = "investai.experienceMode";
 const WAVE_TIMING_OPTIONS = [
   { id: "realtime", label: "Real Time" },
   { id: "10m", label: "Every 10 Minutes" },
+  { id: "15m", label: "Every 15 Minutes" },
   { id: "1h", label: "Every Hour" },
   { id: "4h", label: "Every 4 Hours" },
   { id: "1d", label: "Once a Day" },
 ];
-const DEFAULT_WAVE_TIMING = "1h";
+/** Default matches autonomous briefing cadence (see VITE_AUTONOMOUS_RESEARCH_INTERVAL_MINUTES). */
+const DEFAULT_WAVE_TIMING = "15m";
 const WAVE_TIMING_STORAGE_KEY = "investai.waveTiming";
 const THEME_OPTIONS = [
   { id: "system", label: "System" },
@@ -186,6 +188,8 @@ function waveTimingToMs(value) {
       return 60 * 1000;
     case "10m":
       return 10 * 60 * 1000;
+    case "15m":
+      return 15 * 60 * 1000;
     case "1h":
       return 60 * 60 * 1000;
     case "4h":
@@ -1563,7 +1567,13 @@ export default function App() {
                           ))}
                         </select>
                         <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                          Controls how often market data and researcher briefings refresh.
+                          How often the app re-runs the portfolio briefing (buy/sell and deploy-cash
+                          ideas vs your cash reserve). Manual and assisted modes use this schedule.
+                          Autonomous mode uses{" "}
+                          <span className="font-bold text-slate-600 dark:text-slate-300">
+                            VITE_AUTONOMOUS_RESEARCH_INTERVAL_MINUTES
+                          </span>{" "}
+                          (default 15) instead.
                         </p>
                       </div>
                       <button
