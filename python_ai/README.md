@@ -42,7 +42,8 @@ The main advisor flow can now call:
 
 - Research MCP servers default to:
   - `uvx mcp-server-fetch`
-  - Brave MCP search (when `BRAVE_API_KEY` is configured)
+  - `npx -y @playwright/mcp@latest --headless` (browser automation for live web evidence; no visible window)
+  - Brave MCP search when `BRAVE_API_KEY` is set (`@modelcontextprotocol/server-brave-search`), alongside fetch + Playwright
 - Trader MCP servers include Polygon MCP, and optionally local servers if present:
   - `accounts_server.py`
   - `push_server.py`
