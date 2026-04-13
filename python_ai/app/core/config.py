@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     AI_SKILLS_INDEX_PATH: str = ".agents/skills/skills_index.json"
     AI_SKILLS_ROOT_PATH: str = ".agents/skills"
     AI_SKILLS_PROMPT_LIMIT: int = 15
-    RESEARCH_MIN_BUY_CONFIDENCE: float = 0.6
+    RESEARCH_MIN_BUY_CONFIDENCE: float = 0.51
     OPENAI_MODEL: str = ""
     ANTHROPIC_MODEL: str = ""
 

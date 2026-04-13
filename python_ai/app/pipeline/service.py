@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from app.agents.openai_agents_runtime import OpenAIAgentsRuntime
 from app.agents.financial_advisor import FinancialAdvisorAgent
 from app.agents.prompts import (
+    DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+    DAY_TRADER_RESEARCH_AGENT_SYSTEM_PROMPT,
     DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
     DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT,
 )
@@ -330,6 +332,9 @@ def _build_research_user_prompt(
         "confidence threshold.\n"
         f"Minimum confidence for top_3_buys is {min_buy_confidence:.2f}.\n"
         f"{_strategy_context_text(strategy_growth_pct, strategy_fixed_pct)}\n"
+        "When several top_3_buys meet the threshold, prefer comparable confidence scores so "
+        "deployable cash can split into smaller amounts across multiple securities rather than "
+        "one oversized concentration.\n"
         "Adjust recommendations to respect this strategy tilt and avoid over-concentrating "
         "new cash deployment into a single symbol when alternatives are similarly compelling. "
         "When similarly strong opportunities exist, prefer diversification across sectors "
@@ -394,6 +399,13 @@ def _build_cash_deployment_options(
         max_single_allocation_pct = 0.70
     else:
         max_single_allocation_pct = 0.80
+
+    n = len(candidates)
+    if n >= 2:
+        # Prefer smaller per-name tickets across several symbols instead of one large bet.
+        diversity_cap = min(0.42, (1.0 / n) + 0.10)
+        max_single_allocation_pct = min(max_single_allocation_pct, diversity_cap)
+
     max_single_allocation_amount = safe_budget * max_single_allocation_pct
 
     # Apply concentration cap only when there is a meaningful choice set.
@@ -690,6 +702,33 @@ def _build_execution_recommendations(
     return execution_rows
 
 
+def _parse_stock_ideas(raw_items: Any) -> list[StockIdea]:
+    stock_ideas: list[StockIdea] = []
+    if not isinstance(raw_items, list):
+        return stock_ideas
+
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol", "")).strip().upper()
+        sector = str(item.get("sector", "")).strip()
+        if not symbol or not sector:
+            continue
+        stock_ideas.append(
+            StockIdea(
+                symbol=symbol,
+                company_name=str(item.get("company_name", item.get("name", ""))).strip(),
+                sector=sector,
+                thesis=str(item.get("thesis", "")).strip()
+                or "No thesis returned by model.",
+                risk=str(item.get("risk", "")).strip() or "Risk details not provided.",
+                entry_style=str(item.get("entry_style", "watchlist")).strip().lower(),
+                confidence=float(item.get("confidence", 0.0)),
+            )
+        )
+    return stock_ideas
+
+
 def _extract_market_research_from_model_output(
     model_output: str,
     holdings: list[str],
@@ -755,53 +794,8 @@ def _extract_market_research_from_model_output(
                 )
             )
 
-    stock_ideas: list[StockIdea] = []
-    if isinstance(raw_ideas, list):
-        for item in raw_ideas:
-            if not isinstance(item, dict):
-                continue
-            symbol = str(item.get("symbol", "")).strip().upper()
-            sector = str(item.get("sector", "")).strip()
-            if not symbol or not sector:
-                continue
-            stock_ideas.append(
-                StockIdea(
-                    symbol=symbol,
-                    company_name=str(
-                        item.get("company_name", item.get("name", ""))
-                    ).strip(),
-                    sector=sector,
-                    thesis=str(item.get("thesis", "")).strip()
-                    or "No thesis returned by model.",
-                    risk=str(item.get("risk", "")).strip() or "Risk details not provided.",
-                    entry_style=str(item.get("entry_style", "watchlist")).strip().lower(),
-                    confidence=float(item.get("confidence", 0.0)),
-                )
-            )
-
-    top_3_buys: list[StockIdea] = []
-    if isinstance(raw_top_buys, list):
-        for item in raw_top_buys:
-            if not isinstance(item, dict):
-                continue
-            symbol = str(item.get("symbol", "")).strip().upper()
-            sector = str(item.get("sector", "")).strip()
-            if not symbol or not sector:
-                continue
-            top_3_buys.append(
-                StockIdea(
-                    symbol=symbol,
-                    company_name=str(
-                        item.get("company_name", item.get("name", ""))
-                    ).strip(),
-                    sector=sector,
-                    thesis=str(item.get("thesis", "")).strip()
-                    or "No thesis returned by model.",
-                    risk=str(item.get("risk", "")).strip() or "Risk details not provided.",
-                    entry_style=str(item.get("entry_style", "watchlist")).strip().lower(),
-                    confidence=float(item.get("confidence", 0.0)),
-                )
-            )
+    stock_ideas = _parse_stock_ideas(raw_ideas)
+    top_3_buys = _parse_stock_ideas(raw_top_buys)
 
     do_not_buy: list[DoNotBuyIdea] = []
     if isinstance(raw_do_not_buy, list):
@@ -918,11 +912,28 @@ def _extract_market_research_from_model_output(
     )
 
 
+def _financial_advisor_prompt_for_mode(*, autonomous_mode: bool) -> str:
+    return (
+        DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+        if autonomous_mode
+        else DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+    )
+
+
+def _research_agent_prompt_for_mode(*, autonomous_mode: bool) -> str:
+    return (
+        DAY_TRADER_RESEARCH_AGENT_SYSTEM_PROMPT
+        if autonomous_mode
+        else DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+    )
+
+
 async def _run_openai_agents_recommendations_async(
     *,
     settings: Any,
     symbols: list[str],
     require_research_context: bool,
+    autonomous_mode: bool = False,
 ) -> tuple[list[Recommendation], list[str]]:
     from agents import Agent, Runner
 
@@ -942,7 +953,7 @@ async def _run_openai_agents_recommendations_async(
 
     async with runtime.connected_servers(groups.researcher_params) as researcher_servers:
         researcher_instructions = settings.resolved_ai_system_prompt(
-            DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+            _research_agent_prompt_for_mode(autonomous_mode=autonomous_mode)
         )
         researcher = Agent(
             name="Researcher",
@@ -970,7 +981,7 @@ async def _run_openai_agents_recommendations_async(
                 }
             )
             advisor_instructions = settings.resolved_ai_system_prompt(
-                DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+                _financial_advisor_prompt_for_mode(autonomous_mode=autonomous_mode)
             )
             advisor = Agent(
                 name="Financial Advisor",
@@ -1004,12 +1015,14 @@ def _run_openai_agents_recommendations(
     settings: Any,
     symbols: list[str],
     require_research_context: bool,
+    autonomous_mode: bool = False,
 ) -> tuple[list[Recommendation], list[str]]:
     return _run_async(
         _run_openai_agents_recommendations_async(
             settings=settings,
             symbols=symbols,
             require_research_context=require_research_context,
+            autonomous_mode=autonomous_mode,
         )
     )
 
@@ -1023,6 +1036,7 @@ async def _run_openai_agents_research_async(
     strategy_growth_pct: float,
     strategy_fixed_pct: float,
     require_web_search: bool,
+    autonomous_mode: bool = False,
 ) -> MarketResearchResponse:
     from agents import Agent, Runner
 
@@ -1053,7 +1067,7 @@ async def _run_openai_agents_research_async(
             }
         )
         instructions = settings.resolved_ai_system_prompt(
-            DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+            _research_agent_prompt_for_mode(autonomous_mode=autonomous_mode)
         )
         researcher = Agent(
             name="Researcher",
@@ -1095,6 +1109,7 @@ def _run_openai_agents_research(
     strategy_growth_pct: float,
     strategy_fixed_pct: float,
     require_web_search: bool,
+    autonomous_mode: bool = False,
 ) -> MarketResearchResponse:
     return _run_async(
         _run_openai_agents_research_async(
@@ -1105,16 +1120,22 @@ def _run_openai_agents_research(
             strategy_growth_pct=strategy_growth_pct,
             strategy_fixed_pct=strategy_fixed_pct,
             require_web_search=require_web_search,
+            autonomous_mode=autonomous_mode,
         )
     )
 
 
-def generate_initial_recommendations(symbols: list[str]) -> list[Recommendation]:
+def generate_initial_recommendations(
+    symbols: list[str],
+    *,
+    autonomous_mode: bool = False,
+) -> list[Recommendation]:
     settings = get_settings()
-    research_agent = ResearchAgent(settings=settings)
+    research_agent = ResearchAgent(settings=settings, autonomous_mode=autonomous_mode)
     advisor_agent = FinancialAdvisorAgent(
         settings=settings,
         delegated_tool_provider=research_agent,
+        autonomous_mode=autonomous_mode,
     )
     normalized_symbols = _normalize_symbols(symbols)
     if not normalized_symbols:
@@ -1168,6 +1189,7 @@ def generate_initial_recommendations(symbols: list[str]) -> list[Recommendation]
             settings=settings,
             symbols=normalized_symbols,
             require_research_context=require_research_context,
+            autonomous_mode=autonomous_mode,
         )
         logger.info(
             "Live OpenAI recommendation run succeeded with %d recommendation(s).",
@@ -1226,9 +1248,11 @@ def generate_market_research(
     focus: str = "",
     strategy_growth_pct: float = 60.0,
     strategy_fixed_pct: float = 40.0,
+    *,
+    autonomous_mode: bool = False,
 ) -> MarketResearchResponse:
     settings = get_settings()
-    research_agent = ResearchAgent(settings=settings)
+    research_agent = ResearchAgent(settings=settings, autonomous_mode=autonomous_mode)
     normalized_holdings = _normalize_symbols(holdings)
     min_buy_confidence = settings.resolved_research_min_buy_confidence()
     provider = research_agent.identity.provider
@@ -1298,6 +1322,7 @@ def generate_market_research(
             strategy_growth_pct=_clamp_strategy_growth(strategy_growth_pct),
             strategy_fixed_pct=max(0.0, min(100.0, float(strategy_fixed_pct))),
             require_web_search=require_web_search,
+            autonomous_mode=autonomous_mode,
         )
     except asyncio.CancelledError as exc:
         logger.exception(
@@ -1365,6 +1390,7 @@ def generate_morning_briefing(
 ) -> MorningBriefingResponse:
     settings = get_settings()
     normalized_holdings = _normalize_symbols(holdings)
+    autonomous_mode = str(trading_mode).strip() == "autonomous_agent"
     research_focus = _default_morning_focus(focus)
     clamped_growth_pct = _clamp_strategy_growth(strategy_growth_pct)
     clamped_fixed_pct = max(0.0, min(100.0, float(strategy_fixed_pct)))
@@ -1373,6 +1399,7 @@ def generate_morning_briefing(
         focus=research_focus,
         strategy_growth_pct=clamped_growth_pct,
         strategy_fixed_pct=clamped_fixed_pct,
+        autonomous_mode=autonomous_mode,
     )
 
     holdings_actions = [

@@ -34,10 +34,15 @@ from app.schemas.recommendations import (
 
 router = APIRouter()
 _QUOTE_CACHE: dict[str, dict[str, Any]] = {}
+_TRADING_MODE_PATTERN = "^(manual_user|assisted_agent|autonomous_agent)$"
 
 
 def _parse_symbols_csv(raw: str) -> list[str]:
     return [symbol.strip() for symbol in raw.split(",") if symbol.strip()]
+
+
+def _is_autonomous_mode(trading_mode: str) -> bool:
+    return str(trading_mode).strip() == "autonomous_agent"
 
 
 def _polygon_prev_close(normalized_symbol: str, polygon_api_key: str) -> float:
@@ -136,9 +141,21 @@ def get_latest_pipeline_run() -> dict[str, str | int]:
 @router.get("/recommendations", response_model=RecommendationListResponse)
 def get_recommendations(
     watchlist: str = Query(default="SPY,QQQ"),
+    trading_mode: str = Query(
+        default="manual_user",
+        pattern=_TRADING_MODE_PATTERN,
+        description=(
+            "When autonomous_agent, day-trader system prompts are used for the "
+            "advisor and research agents."
+        ),
+    ),
 ) -> RecommendationListResponse:
     symbols = _parse_symbols_csv(watchlist)
-    recommendations = generate_initial_recommendations(symbols=symbols)
+    autonomous_mode = _is_autonomous_mode(trading_mode)
+    recommendations = generate_initial_recommendations(
+        symbols=symbols,
+        autonomous_mode=autonomous_mode,
+    )
     return RecommendationListResponse(
         recommendations=recommendations,
         tools_used=latest_recommendation_tools_used(),
@@ -173,9 +190,21 @@ def post_holdings_intraday_prices(payload: HoldingsIntradayRequest) -> HoldingsI
 def get_market_research(
     holdings: str = Query(default="SPY,QQQ,AAPL"),
     focus: str = Query(default=""),
+    trading_mode: str = Query(
+        default="manual_user",
+        pattern=_TRADING_MODE_PATTERN,
+        description=(
+            "When autonomous_agent, day-trader system prompts are used for the research agent."
+        ),
+    ),
 ) -> MarketResearchResponse:
     symbols = _parse_symbols_csv(holdings)
-    return generate_market_research(holdings=symbols, focus=focus)
+    autonomous_mode = _is_autonomous_mode(trading_mode)
+    return generate_market_research(
+        holdings=symbols,
+        focus=focus,
+        autonomous_mode=autonomous_mode,
+    )
 
 
 @router.get("/briefings/latest", response_model=MorningBriefingResponse)

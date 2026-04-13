@@ -8,6 +8,7 @@ import {
   calculateHoldingInvestedAmount,
   calculateHoldingMarketValue,
 } from "../lib/portfolioMetrics";
+import { formatCurrency } from "../lib/formatCurrency";
 
 export function Portfolio({
   holdings,
@@ -19,11 +20,6 @@ export function Portfolio({
   morningBriefing,
   tradingMode,
 }) {
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
   const activeTradingMode = getTradingMode(tradingMode);
   const activeHoldings = (holdings || []).filter(
     (holding) =>

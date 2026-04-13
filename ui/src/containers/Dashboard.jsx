@@ -14,6 +14,7 @@ import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
 import { TradingModeSelector } from "../components/TradingModeSelector";
 import { getTradingMode } from "../lib/tradingModes";
+import { formatCurrency } from "../lib/formatCurrency";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -47,13 +48,9 @@ export function Dashboard({
   recommendationOrderErrors,
   onRecommendationDecision,
 }) {
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
   const activeTradingMode = getTradingMode(tradingMode);
   const isAssistedMode = activeTradingMode.id === "assisted_agent";
+  const isAutonomousModeUi = activeTradingMode.id === "autonomous_agent";
   const activeHoldings = (holdings || []).filter(
     (holding) =>
       String(holding?.symbol || "").trim().length > 0 && (Number(holding?.shares) || 0) > 0
@@ -563,6 +560,25 @@ export function Dashboard({
                                   return <Badge variant="info">{decision}</Badge>;
                                 })()}
                               </div>
+                            ) : null}
+                            {isAutonomousModeUi && !isAssistedMode ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {orderStatus === "submitting" ? (
+                                  <Badge variant="warning">SUBMITTING</Badge>
+                                ) : null}
+                                {orderStatus === "submitted" ? (
+                                  <Badge variant="success">ORDER SUBMITTED</Badge>
+                                ) : null}
+                                {orderStatus === "failed" ? (
+                                  <Badge variant="warning">ORDER FAILED</Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {isAutonomousModeUi &&
+                            String(recommendationOrderErrors?.[recKey] || "").trim() ? (
+                              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-medium text-amber-900 leading-relaxed">
+                                {String(recommendationOrderErrors?.[recKey] || "").trim()}
+                              </p>
                             ) : null}
                             {isAssistedMode &&
                             orderStatus === "failed" &&

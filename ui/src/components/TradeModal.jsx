@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { resolveCompanyName } from "../lib/companyNames";
 import { TRANSACTION_FEE_USD } from "../lib/tradingConfig";
+import { formatCurrency } from "../lib/formatCurrency";
 import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
 import { fetchSymbolQuote } from "../services/marketData";
 
@@ -18,11 +19,6 @@ export const TradeModal = ({
   experienceMode = "basic",
   onExecuteTrade,
 }) => {
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
   const manualTradingDisabled = tradingMode === "autonomous_agent";
   const isAddPurchaseFlow = !holding;
   const [mode, setMode] = useState("buy");

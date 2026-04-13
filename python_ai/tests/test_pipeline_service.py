@@ -216,7 +216,7 @@ def test_generate_recommendations_uses_openai_and_tools(monkeypatch: Any) -> Non
     monkeypatch.setattr(
         service,
         "_run_openai_agents_recommendations",
-        lambda settings, symbols, require_research_context: (
+        lambda settings, symbols, require_research_context, *, autonomous_mode=False: (
             [
                 service.Recommendation(
                     symbol="SPY",
@@ -262,7 +262,7 @@ def test_generate_market_research_uses_openai_and_tools(monkeypatch: Any) -> Non
     monkeypatch.setattr(
         service,
         "_run_openai_agents_research",
-        lambda settings, holdings, focus, min_buy_confidence, strategy_growth_pct, strategy_fixed_pct, require_web_search: (
+        lambda settings, holdings, focus, min_buy_confidence, strategy_growth_pct, strategy_fixed_pct, require_web_search, *, autonomous_mode=False: (
             service.MarketResearchResponse(
                 holdings_review=[
                     service.HoldingResearch(
@@ -581,7 +581,7 @@ def test_generate_morning_briefing_with_cash_builds_actions_and_ideas(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="AAPL",
@@ -638,7 +638,7 @@ def test_generate_morning_briefing_without_cash_skips_deployment(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="QQQ",
@@ -689,7 +689,7 @@ def test_generate_morning_briefing_keeps_cash_reserve_and_splits_allocations(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[],
             sector_outlook=[],
             stock_ideas=[],
@@ -728,9 +728,10 @@ def test_generate_morning_briefing_keeps_cash_reserve_and_splits_allocations(
     assert len(output.cash_deployment_options) == 2
     assert sum(option.suggested_amount for option in output.cash_deployment_options) == 9000.0
     assert output.cash_deployment_options[0].symbol == "NVDA"
-    assert output.cash_deployment_options[0].suggested_amount == 5400.0
+    # Multi-name diversity cap limits any single ticket (smaller slices across symbols).
+    assert output.cash_deployment_options[0].suggested_amount == 3780.0
     assert output.cash_deployment_options[1].symbol == "MSFT"
-    assert output.cash_deployment_options[1].suggested_amount == 3600.0
+    assert output.cash_deployment_options[1].suggested_amount == 5220.0
 
 
 def test_generate_morning_briefing_strategy_caps_single_symbol_concentration(
@@ -746,7 +747,7 @@ def test_generate_morning_briefing_strategy_caps_single_symbol_concentration(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[],
             sector_outlook=[],
             stock_ideas=[],
@@ -802,7 +803,7 @@ def test_generate_morning_briefing_builds_sell_then_buy_execution_line(
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="AAPL",
@@ -867,7 +868,7 @@ def test_generate_morning_briefing_rotation_skips_unfunded_rows_without_sell_leg
     monkeypatch.setattr(
         service,
         "generate_market_research",
-        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct: service.MarketResearchResponse(
+        lambda holdings, focus, strategy_growth_pct, strategy_fixed_pct, *, autonomous_mode=False: service.MarketResearchResponse(
             holdings_review=[
                 service.HoldingResearch(
                     symbol="AAPL",
@@ -910,6 +911,44 @@ def test_generate_morning_briefing_rotation_skips_unfunded_rows_without_sell_leg
     )
 
     assert output.execution_recommendations == []
+
+
+def test_generate_morning_briefing_sets_autonomous_flag_for_research(
+    monkeypatch: Any,
+) -> None:
+    """Autonomous trading mode uses day-trader system prompts via generate_market_research."""
+    now = service.datetime.now(service.timezone.utc)
+    settings = Settings(OPENAI_API_KEY="")
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    captured: list[dict[str, Any]] = []
+
+    def fake_gmr(*args: Any, **kwargs: Any) -> service.MarketResearchResponse:
+        captured.append(dict(kwargs))
+        return service.MarketResearchResponse(
+            holdings_review=[],
+            sector_outlook=[],
+            stock_ideas=[],
+            top_3_buys=[],
+            do_not_buy=[],
+            macro_summary="ok",
+            generated_at=now,
+        )
+
+    monkeypatch.setattr(service, "generate_market_research", fake_gmr)
+
+    service.generate_morning_briefing(
+        holdings=["SPY"],
+        cash_available=1500.0,
+        trading_mode="autonomous_agent",
+    )
+    assert captured[-1].get("autonomous_mode") is True
+
+    service.generate_morning_briefing(
+        holdings=["SPY"],
+        cash_available=1500.0,
+        trading_mode="manual_user",
+    )
+    assert captured[-1].get("autonomous_mode") is False
 
 
 def test_latest_persisted_morning_briefing_returns_none_when_missing(monkeypatch: Any) -> None:

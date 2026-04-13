@@ -9,7 +9,10 @@ from typing import Any
 
 import httpx
 
-from app.agents.prompts import DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+from app.agents.prompts import (
+    DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+    DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+)
 from app.agents.skills_catalog import SkillsCatalog
 from app.core.config import Settings
 
@@ -30,8 +33,11 @@ class FinancialAdvisorAgent:
         self,
         settings: Settings,
         delegated_tool_provider: Any | None = None,
+        *,
+        autonomous_mode: bool = False,
     ) -> None:
         self._settings = settings
+        self._autonomous_mode = autonomous_mode
         self._polygon_cache: dict[str, dict[str, Any]] = {}
         self._delegated_tool_provider = delegated_tool_provider
         self._skills = SkillsCatalog(
@@ -50,9 +56,12 @@ class FinancialAdvisorAgent:
         return AgentIdentity(provider=provider, model=model)
 
     def system_prompt(self) -> str:
-        base_prompt = self._settings.resolved_ai_system_prompt(
-            DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+        default_prompt = (
+            DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+            if self._autonomous_mode
+            else DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
         )
+        base_prompt = self._settings.resolved_ai_system_prompt(default_prompt)
         skills_context = self._skills.prompt_context(
             max_visible_skills=self._settings.AI_SKILLS_PROMPT_LIMIT
         )

@@ -76,7 +76,7 @@ def test_recommendations_endpoint(monkeypatch) -> None:
     monkeypatch.setattr(
         api_routes,
         "generate_initial_recommendations",
-        lambda symbols: fixed,
+        lambda symbols, *, autonomous_mode=False: fixed,
     )
     response = client.get("/recommendations?watchlist=AAPL,MSFT")
     assert response.status_code == 200

@@ -1,6 +1,20 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _normalize_entry_style_value(value: object) -> str:
+    """Map LLM aliases to canonical entry_style values."""
+    if value is None:
+        return "watchlist"
+    s = str(value).strip().lower()
+    if not s:
+        return "watchlist"
+    aliases = {"watch": "watchlist"}
+    s = aliases.get(s, s)
+    if s in ("immediate", "pullback", "watchlist"):
+        return s
+    return "watchlist"
 
 
 class Recommendation(BaseModel):
@@ -41,6 +55,11 @@ class StockIdea(BaseModel):
     risk: str
     entry_style: str = Field(pattern="^(immediate|pullback|watchlist)$")
     confidence: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("entry_style", mode="before")
+    @classmethod
+    def _coerce_entry_style(cls, v: object) -> str:
+        return _normalize_entry_style_value(v)
 
 
 class DoNotBuyIdea(BaseModel):
@@ -88,6 +107,11 @@ class CashDeploymentOption(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     suggested_amount: float = Field(default=0.0, ge=0.0)
     suggested_allocation_pct: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @field_validator("entry_style", mode="before")
+    @classmethod
+    def _coerce_entry_style(cls, v: object) -> str:
+        return _normalize_entry_style_value(v)
 
 
 class SellLeg(BaseModel):

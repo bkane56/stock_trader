@@ -1,5 +1,6 @@
 const DEFAULT_TRANSACTION_FEE_USD = 10;
-const DEFAULT_AUTONOMOUS_MIN_CONFIDENCE = 0.7;
+/** Autonomous execution skips buys below this confidence (default 0.51 = 51% or higher passes). */
+const DEFAULT_AUTONOMOUS_MIN_CONFIDENCE = 0.51;
 
 function toFiniteNumber(value, fallback) {
   const parsed = Number(value);
