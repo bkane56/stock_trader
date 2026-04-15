@@ -35,19 +35,22 @@ class FinancialAdvisorAgent:
         delegated_tool_provider: Any | None = None,
         *,
         autonomous_mode: bool = False,
+        repo_root: Path | None = None,
     ) -> None:
         self._settings = settings
         self._autonomous_mode = autonomous_mode
         self._polygon_cache: dict[str, dict[str, Any]] = {}
         self._delegated_tool_provider = delegated_tool_provider
+        self._repo_root_path = (
+            repo_root.resolve()
+            if repo_root is not None
+            else Path(__file__).resolve().parents[3]
+        )
         self._skills = SkillsCatalog(
-            repo_root=self._repo_root(),
+            repo_root=self._repo_root_path,
             index_path=self._settings.AI_SKILLS_INDEX_PATH,
             skills_root=self._settings.AI_SKILLS_ROOT_PATH,
         )
-
-    def _repo_root(self) -> Path:
-        return Path(__file__).resolve().parents[3]
 
     @property
     def identity(self) -> AgentIdentity:

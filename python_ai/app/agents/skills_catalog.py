@@ -8,7 +8,7 @@ class SkillsCatalog:
         self,
         repo_root: Path,
         index_path: str = "skills_index.json",
-        skills_root: str = ".agents/skills",
+        skills_root: str = ".cursor/skills",
     ) -> None:
         self._repo_root = repo_root
         index_candidate = Path(index_path)

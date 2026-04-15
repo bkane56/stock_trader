@@ -41,21 +41,30 @@ class ResearchAgent(FunctionalToolProvider):
     """Research tool surface used by the OpenAI tool loop in pipeline.service."""
     _LOCAL_SKILL_TOOL_NAMES = {"search_skills", "read_skill"}
 
-    def __init__(self, settings: Settings, *, autonomous_mode: bool = False) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        autonomous_mode: bool = False,
+        repo_root: Path | None = None,
+    ) -> None:
         self._settings = settings
         self._autonomous_mode = autonomous_mode
+        self._repo_root_path = (
+            repo_root.resolve()
+            if repo_root is not None
+            else Path(__file__).resolve().parents[3]
+        )
         self._advisor_delegate = FinancialAdvisorAgent(
             settings=settings,
             autonomous_mode=autonomous_mode,
+            repo_root=repo_root,
         )
         self._skills = SkillsCatalog(
-            repo_root=self._repo_root(),
+            repo_root=self._repo_root_path,
             index_path=self._settings.AI_SKILLS_INDEX_PATH,
             skills_root=self._settings.AI_SKILLS_ROOT_PATH,
         )
-
-    def _repo_root(self) -> Path:
-        return Path(__file__).resolve().parents[3]
 
     @property
     def identity(self) -> AgentIdentity:
