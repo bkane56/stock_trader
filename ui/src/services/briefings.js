@@ -1,3 +1,8 @@
+/**
+ * Client for the Python AI briefing endpoints.
+ * All functions throw on non-2xx responses.
+ */
+
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8010";
 
 function apiBaseUrl() {
@@ -5,6 +10,10 @@ function apiBaseUrl() {
   return raw.replace(/\/$/, "");
 }
 
+/**
+ * Fetches the most recently persisted morning briefing from the API.
+ * @returns {Promise<object>} Raw briefing JSON from the server.
+ */
 export async function fetchLatestMorningBriefing() {
   const response = await fetch(`${apiBaseUrl()}/briefings/latest`);
   if (!response.ok) {
@@ -13,6 +22,20 @@ export async function fetchLatestMorningBriefing() {
   return response.json();
 }
 
+/**
+ * Requests a fresh morning briefing from the AI pipeline.
+ *
+ * @param {object} [params]
+ * @param {string[]} [params.holdings] - Ticker symbols currently held.
+ * @param {Array<{ symbol: string, name: string, sector: string, shares: number, price: number }>} [params.holdingsSnapshot]
+ * @param {number} [params.cashAvailable]
+ * @param {number} [params.strategyGrowthPct] - Growth allocation 0–100.
+ * @param {number} [params.strategyFixedPct] - Fixed-income allocation 0–100.
+ * @param {string} [params.focus] - Optional free-text focus directive for the agent.
+ * @param {boolean} [params.persist] - Whether to save the briefing on the server.
+ * @param {string} [params.tradingMode] - Active trading mode ID.
+ * @returns {Promise<object>} Briefing JSON including execution recommendations.
+ */
 export async function generateMorningBriefing({
   holdings = [],
   holdingsSnapshot = [],

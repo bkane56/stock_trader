@@ -1,5 +1,4 @@
 from collections import deque
-from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
@@ -9,7 +8,11 @@ from typing import Any
 
 import httpx
 
-from app.agents.prompts import DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+from app.agents.models import AgentIdentity
+from app.agents.prompts import (
+    DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+    DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT,
+)
 from app.agents.skills_catalog import SkillsCatalog
 from app.core.config import Settings
 
@@ -19,40 +22,53 @@ _POLYGON_CALLS_PER_MINUTE_LIMIT = 5
 _POLYGON_CACHE_TTL_SECONDS = 300
 
 
-@dataclass(frozen=True)
-class AgentIdentity:
-    provider: str
-    model: str
-
-
 class FinancialAdvisorAgent:
+    """AI financial advisor backed by the configured OpenAI-compatible provider.
+
+    Wraps prompt construction, tool schemas, and optional Polygon market-data
+    fetching.  Pass a *delegated_tool_provider* to expose additional research
+    tools (e.g. ``ResearchAgent``) inside the same tool loop.
+    """
+
     def __init__(
         self,
         settings: Settings,
         delegated_tool_provider: Any | None = None,
+        *,
+        autonomous_mode: bool = False,
+        repo_root: Path | None = None,
     ) -> None:
+        """Initialise the agent with runtime settings and optional tool delegation."""
         self._settings = settings
+        self._autonomous_mode = autonomous_mode
         self._polygon_cache: dict[str, dict[str, Any]] = {}
         self._delegated_tool_provider = delegated_tool_provider
+        self._repo_root_path = (
+            repo_root.resolve()
+            if repo_root is not None
+            else Path(__file__).resolve().parents[3]
+        )
         self._skills = SkillsCatalog(
-            repo_root=self._repo_root(),
+            repo_root=self._repo_root_path,
             index_path=self._settings.AI_SKILLS_INDEX_PATH,
             skills_root=self._settings.AI_SKILLS_ROOT_PATH,
         )
 
-    def _repo_root(self) -> Path:
-        return Path(__file__).resolve().parents[3]
-
     @property
     def identity(self) -> AgentIdentity:
+        """Active provider and model derived from current settings."""
         provider = self._settings.resolved_ai_provider()
         model = self._settings.resolved_ai_model()
         return AgentIdentity(provider=provider, model=model)
 
     def system_prompt(self) -> str:
-        base_prompt = self._settings.resolved_ai_system_prompt(
-            DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+        """Build the full system prompt including skills context and Polygon availability."""
+        default_prompt = (
+            DAY_TRADER_FINANCIAL_ADVISOR_SYSTEM_PROMPT
+            if self._autonomous_mode
+            else DEFAULT_FINANCIAL_ADVISOR_SYSTEM_PROMPT
         )
+        base_prompt = self._settings.resolved_ai_system_prompt(default_prompt)
         skills_context = self._skills.prompt_context(
             max_visible_skills=self._settings.AI_SKILLS_PROMPT_LIMIT
         )
@@ -67,10 +83,12 @@ class FinancialAdvisorAgent:
         return f"{base_prompt}\n\n{polygon_context}\n\n{skills_context}"
 
     def rationale_prefix(self) -> str:
+        """Return a short string suitable for prepending to agent rationale output."""
         identity = self.identity
         return f"Agent={identity.provider}:{identity.model}"
 
     def tool_schemas(self) -> list[dict[str, Any]]:
+        """Return all tool JSON schemas exposed to the LLM, including delegated tools."""
         delegated_tools: list[dict[str, Any]] = []
         if self._delegated_tool_provider is not None and hasattr(
             self._delegated_tool_provider, "functional_tool_schemas"

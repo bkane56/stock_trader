@@ -78,7 +78,7 @@ def test_market_research_tool_delegates_to_research_service(monkeypatch: Any) ->
 
     monkeypatch.setattr(
         "app.pipeline.service.generate_market_research",
-        lambda holdings, focus: _FakeResearchReport(),
+        lambda holdings, focus, strategy_growth_pct=60.0, strategy_fixed_pct=40.0, *, autonomous_mode=False: _FakeResearchReport(),
     )
     output = agent.execute_tool(
         "run_market_research",

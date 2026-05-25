@@ -79,7 +79,12 @@ class OpenAIAgentsRuntime:
         trader_params.append(self._market_server_params())
 
         researcher_params: list[dict[str, Any]] = [
-            {"command": "uvx", "args": ["mcp-server-fetch"]}
+            {"command": "uvx", "args": ["mcp-server-fetch"]},
+            {
+                "command": "npx",
+                "args": ["-y", "@playwright/mcp@latest", "--headless"],
+                "env": self._subprocess_env({"PLAYWRIGHT_MCP_HEADLESS": "1"}),
+            },
         ]
         brave_api_key = self._settings.BRAVE_API_KEY.strip()
         if brave_api_key:
@@ -125,6 +130,7 @@ class OpenAIAgentsRuntime:
             "polygon_plan": self._settings.POLYGON_PLAN.strip().lower() or "free",
             "polygon_realtime": bool(self._settings.POLYGON_REALTIME),
             "polygon_api_key_configured": bool(self._settings.POLYGON_API_KEY.strip()),
+            "playwright_mcp_headless": True,
             "brave_api_key_configured": bool(self._settings.BRAVE_API_KEY.strip()),
             "local_servers_present": {
                 "accounts_server.py": self._local_server_exists("accounts_server.py"),

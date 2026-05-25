@@ -1,89 +1,42 @@
-# Skills Update Guide
+# Skills maintenance
 
-This guide explains how to update the skills in the Antigravity Awesome Skills web application.
+This repo keeps optional agent workflows as Markdown skills under [`.cursor/skills/`](.cursor/skills/). Each skill package is a directory containing `SKILL.md`.
 
-## Automatic Updates (Recommended)
+## What files matter
 
-The `START_APP.bat` file automatically checks for and updates skills when you run it. It uses multiple methods:
+| File | Purpose |
+|------|---------|
+| [`skills_keep_manifest.json`](skills_keep_manifest.json) | Lists skill directories to **keep** when pruning (see below). |
+| [`skills_index.json`](skills_index.json) | Metadata index (`id`, `path`, `description`, etc.) used by `SkillsCatalog` in `python_ai`. |
+| [`scripts/prune_skills.py`](scripts/prune_skills.py) | Dry-run or delete skill dirs not listed in the manifest. |
+| [`scripts/regenerate_skills_index.py`](scripts/regenerate_skills_index.py) | Rebuild `skills_index.json` from disk (merges prior fields when ids match). |
 
-1. **Git method** (if Git is installed): Fast and efficient
-2. **PowerShell download** (fallback): Works without Git
+## Pruning skills
 
-## Manual Update Options
+Dry-run (shows counts and sample deletes):
 
-### Option 1: Using npm script (Recommended for manual updates)
 ```bash
-npm run update:skills
+python3 scripts/prune_skills.py
 ```
 
-This command:
-- Generates the latest skills index from the skills directory
-- Copies it to the web app's public directory
-- Requires Python and PyYAML to be installed
+Apply deletes after editing `skills_keep_manifest.json`:
 
-### Option 2: Using START_APP.bat (Integrated solution)
 ```bash
-START_APP.bat
+python3 scripts/prune_skills.py --execute
 ```
 
-The START_APP.bat file includes integrated update functionality that:
-- Automatically checks for updates on startup
-- Uses Git if available (fast method)
-- Falls back to HTTPS download if Git is not installed
-- Handles all dependencies automatically
-- Provides clear status messages
-- Works without any additional setup
+## Regenerating the index
 
-### Option 3: Manual steps
+After adds/removals under `.cursor/skills/`, regenerate the index from the repo root:
+
 ```bash
-# 1. Generate skills index
-python scripts/generate_index.py
-
-# 2. Copy to web app
-copy skills_index.json web-app\public\skills.json
+cd python_ai && uv run python ../scripts/regenerate_skills_index.py
 ```
 
-## Prerequisites
+Or from the repo root if `uv` resolves `python_ai` as the project:
 
-For manual updates, you need:
-
-- **Python 3.x**: Download from [python.org](https://python.org/)
-- **PyYAML**: Install with `pip install PyYAML`
-
-## Troubleshooting
-
-### "Python is not recognized"
-- Install Python from [python.org](https://python.org/)
-- Make sure to check "Add Python to PATH" during installation
-
-### "PyYAML not found"
-- Install with: `pip install PyYAML`
-- Or run the update script which will install it automatically
-
-### "Failed to copy skills"
-- Make sure the `web-app\public\` directory exists
-- Check file permissions
-
-## What Gets Updated
-
-The update process refreshes:
-- Skills index (`skills_index.json`)
-- Web app skills data (`web-app\public\skills.json`)
-- All 900+ skills from the skills directory
-
-## When to Update
-
-Update skills when:
-- New skills are added to the repository
-- You want the latest skill descriptions
-- Skills appear missing or outdated in the web app
-
-## Git Users
-
-If you have Git installed and want to update the entire repository:
 ```bash
-git pull origin main
-npm run update:skills
+uv run --project python_ai python scripts/regenerate_skills_index.py
 ```
 
-This pulls the latest code and updates the skills data.
+The script preserves `risk`, `source`, `date_added`, `name`, `description`, and `category` from the previous `skills_index.json` when the same `id` still exists.

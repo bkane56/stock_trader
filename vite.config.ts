@@ -1,9 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
+import { configDefaults } from 'vitest/config';
 
-export default defineConfig(({mode}) => {
+export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   // Vercel / CI inject VITE_* into process.env; loadEnv only reads .env files.
   // Merge so preview/production builds pick up dashboard env vars.
@@ -45,8 +46,22 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: ['./ui/src/test/setup.js'],
+      include: ['ui/src/**/*.test.{js,jsx}'],
+      exclude: [...configDefaults.exclude],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        include: ['ui/src/reducers/**', 'ui/src/lib/**', 'ui/src/hooks/**'],
+        exclude: ['ui/src/test/**'],
+        thresholds: { lines: 70, functions: 70, branches: 70, statements: 70 },
+      },
     },
   };
 });

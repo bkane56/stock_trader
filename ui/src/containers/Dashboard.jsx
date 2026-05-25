@@ -7,12 +7,14 @@ import {
   ArrowUpRight,
   Zap,
   Download,
+  Clock,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { GlassCard } from "../components/GlassCard";
 import { Badge } from "../components/Badge";
 import { TradingModeSelector } from "../components/TradingModeSelector";
 import { getTradingMode } from "../lib/tradingModes";
+import { formatCurrency } from "../lib/formatCurrency";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -46,13 +48,9 @@ export function Dashboard({
   recommendationOrderErrors,
   onRecommendationDecision,
 }) {
-  const formatCurrency = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
   const activeTradingMode = getTradingMode(tradingMode);
   const isAssistedMode = activeTradingMode.id === "assisted_agent";
+  const isAutonomousModeUi = activeTradingMode.id === "autonomous_agent";
   const activeHoldings = (holdings || []).filter(
     (holding) =>
       String(holding?.symbol || "").trim().length > 0 && (Number(holding?.shares) || 0) > 0
@@ -108,7 +106,7 @@ export function Dashboard({
       className="space-y-10"
     >
       <header>
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight dark:text-slate-100">
           {getGreeting()}, {user?.firstName || "Investor"}.
         </h1>
         <p className="text-slate-500 font-medium mt-2 flex items-center gap-2">
@@ -155,9 +153,9 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(totalValue)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
               <ArrowUpRight size={16} />
               {activeHoldings.length} active positions
@@ -175,9 +173,9 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(investedAmount)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-slate-400 mb-1">
               Historical cost basis
             </p>
@@ -201,14 +199,15 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(cash)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-slate-400">
               Ready for deployment
             </p>
             <div className="grid grid-cols-2 gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => openCashModal("deposit")}
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
               >
@@ -216,6 +215,7 @@ export function Dashboard({
                 Add Cash
               </button>
               <button
+                type="button"
                 onClick={() => openCashModal("withdraw")}
                 className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors flex items-center justify-center gap-1.5"
               >
@@ -235,9 +235,9 @@ export function Dashboard({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Holdings Snapshot */}
         <GlassCard className="lg:col-span-2 p-8">
-          <div className="flex items-center justify-between mb-10">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-10">
             <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight dark:text-slate-100">
                 Holdings Snapshot
               </h2>
               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">
@@ -245,8 +245,9 @@ export function Dashboard({
               </p>
             </div>
             <button
+              type="button"
               onClick={goToPortfolio}
-              className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+              className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 dark:shadow-slate-900"
             >
               View Portfolio
             </button>
@@ -254,7 +255,7 @@ export function Dashboard({
 
           {topHoldings.length ? (
             <div className="rounded-2xl border border-slate-100 overflow-hidden">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[32rem] text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/60">
                     <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -363,13 +364,100 @@ export function Dashboard({
                 </div>
 
                 <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
-                  <p className="text-sm font-black text-slate-900 mb-2">
-                    Cash Deployment Ideas
+                  <p className="text-sm font-black text-slate-900 mb-1">
+                    Trades & deployment ideas
                   </p>
+                  {morningBriefing?.execution_recommendations?.length ? (
+                    <p className="text-[11px] font-medium text-slate-500 mb-3">
+                      In autonomous mode, the app runs these rows in order (sells before buys when
+                      listed).
+                    </p>
+                  ) : (
+                    <p className="text-[11px] font-medium text-slate-500 mb-3">
+                      When no execution queue exists, ideas below are research-only (not
+                      auto-traded).
+                    </p>
+                  )}
+                  {morningBriefing?.new_buys_deferred ? (
+                    <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3">
+                      <p className="text-xs font-black text-emerald-900">
+                        No new purchases scheduled
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium text-emerald-800 leading-relaxed">
+                        Existing positions look healthy enough to hold — deployable cash was not
+                        allocated to new names. Weak names may still show as sells below.
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="space-y-2">
                     {topDeployIdeas.length ? (
                       topDeployIdeas.map((item) => {
                         const recKey = item.key || `${item.symbol}:${item.entry_style}`;
+                        const sellLeg = item.sell_leg || null;
+                        const isSellOnlyRow =
+                          Boolean(item.is_sell_only) && sellLeg && item.buy == null;
+                        if (isSellOnlyRow) {
+                          const sellSymbol = String(sellLeg?.symbol || "").toUpperCase();
+                          const sellName =
+                            String(sellLeg?.name || "").trim() || sellSymbol || "Holding";
+                          const sellReason = String(sellLeg?.reason || "").trim();
+                          const sellShares = Number(sellLeg?.shares) || 0;
+                          const orderStatus = String(
+                            recommendationOrderStatus?.[recKey] || "",
+                          ).toLowerCase();
+                          return (
+                            <div
+                              key={`${recKey}-sell-only`}
+                              className="rounded-xl border border-amber-200 bg-amber-50/50 p-3"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-xs font-black uppercase tracking-widest text-amber-800">
+                                  SELL
+                                </p>
+                                <Badge variant="warning">REDUCE / EXIT</Badge>
+                              </div>
+                              <p className="mt-2 text-xs font-black text-slate-900">
+                                Sell {sellName} ({sellSymbol}) — {sellShares.toFixed(4)} sh
+                              </p>
+                              <p className="mt-1 text-xs font-medium text-slate-600 leading-relaxed">
+                                Why: {sellReason || "Research suggests reducing this position."}
+                              </p>
+                              {isAssistedMode ? (
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() =>
+                                        onRecommendationDecision?.({
+                                          key: recKey,
+                                          decision: "accepted",
+                                          recommendation: item,
+                                        })
+                                      }
+                                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors"
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        onRecommendationDecision?.({
+                                          key: recKey,
+                                          decision: "declined",
+                                          recommendation: item,
+                                        })
+                                      }
+                                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                  {orderStatus === "submitting" ? (
+                                    <Badge variant="warning">SUBMITTING</Badge>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        }
                         const buyLeg = item.buy || item;
                         const buySymbol = String(buyLeg?.symbol || "").toUpperCase();
                         const buyName =
@@ -381,8 +469,7 @@ export function Dashboard({
                               item?.thesis ||
                               "",
                           ).trim() || "No buy rationale provided.";
-                        const sellLeg = item.sell_leg || null;
-                        const hasRotation = Boolean(sellLeg?.symbol);
+                        const hasRotation = Boolean(sellLeg?.symbol && item.buy);
                         const sellSymbol = String(sellLeg?.symbol || "").toUpperCase();
                         const sellName =
                           String(sellLeg?.name || "").trim() || sellSymbol || "Current Holding";
@@ -477,6 +564,25 @@ export function Dashboard({
                                 })()}
                               </div>
                             ) : null}
+                            {isAutonomousModeUi && !isAssistedMode ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {orderStatus === "submitting" ? (
+                                  <Badge variant="warning">SUBMITTING</Badge>
+                                ) : null}
+                                {orderStatus === "submitted" ? (
+                                  <Badge variant="success">ORDER SUBMITTED</Badge>
+                                ) : null}
+                                {orderStatus === "failed" ? (
+                                  <Badge variant="warning">ORDER FAILED</Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {isAutonomousModeUi &&
+                            String(recommendationOrderErrors?.[recKey] || "").trim() ? (
+                              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-medium text-amber-900 leading-relaxed">
+                                {String(recommendationOrderErrors?.[recKey] || "").trim()}
+                              </p>
+                            ) : null}
                             {isAssistedMode &&
                             orderStatus === "failed" &&
                             String(recommendationOrderErrors?.[recKey] || "").trim() ? (
@@ -508,6 +614,26 @@ export function Dashboard({
                       </p>
                     )}
                   </div>
+                  {generatedAt ? (
+                    <div
+                      className="mt-4 flex justify-center"
+                      title="When the briefing last ran to decide whether your portfolio needs trades or cash deployment changes."
+                    >
+                      <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-3 py-1.5 shadow-sm">
+                        <Clock
+                          className="h-3.5 w-3.5 shrink-0 text-teal-600"
+                          strokeWidth={2.5}
+                          aria-hidden
+                        />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          Last portfolio review
+                        </span>
+                        <span className="truncate text-[10px] font-semibold text-slate-600">
+                          {generatedAt}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : null}
@@ -529,6 +655,7 @@ export function Dashboard({
             </span>
           </h2>
           <button
+            type="button"
             onClick={toggleShowAllTransactions}
             className="text-xs font-bold text-teal-600 hover:text-teal-700 transition-colors"
           >
@@ -536,7 +663,7 @@ export function Dashboard({
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[40rem] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">

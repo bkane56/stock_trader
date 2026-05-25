@@ -22,22 +22,24 @@ class Settings(BaseSettings):
     MORNING_BRIEFING_MIN_CASH: float = 1000.0
     MORNING_BRIEFING_CASH_RESERVE_RATIO: float = 0.10
     MORNING_BRIEFING_DEFAULT_HOLDINGS: str = "SPY,QQQ,AAPL"
-    MORNING_BRIEFING_DEFAULT_CASH: float = 10000.0
+    MORNING_BRIEFING_DEFAULT_CASH: float = 100000.0
 
     AI_PROVIDER: str = "openai"
     AI_MODEL: str = "gpt-4.2"
     AI_SYSTEM_PROMPT: str = ""
-    AI_SKILLS_INDEX_PATH: str = ".agents/skills/skills_index.json"
-    AI_SKILLS_ROOT_PATH: str = ".agents/skills"
+    AI_SKILLS_INDEX_PATH: str = "skills_index.json"
+    AI_SKILLS_ROOT_PATH: str = ".cursor/skills"
     AI_SKILLS_PROMPT_LIMIT: int = 15
-    RESEARCH_MIN_BUY_CONFIDENCE: float = 0.6
+    RESEARCH_MIN_BUY_CONFIDENCE: float = 0.51
     OPENAI_MODEL: str = ""
+    # Reserved: Anthropic provider not yet implemented — field kept for future integration.
     ANTHROPIC_MODEL: str = ""
 
     POLYGON_API_KEY: str = ""
     POLYGON_PLAN: str = "free"
     POLYGON_REALTIME: bool = False
     OPENAI_API_KEY: str = ""
+    # Reserved: Anthropic provider not yet implemented — field kept for future integration.
     ANTHROPIC_API_KEY: str = ""
     SERPER_API_KEY: str = ""
     BRAVE_API_KEY: str = ""

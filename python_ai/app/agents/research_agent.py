@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
@@ -9,7 +8,11 @@ import httpx
 
 from app.agents.financial_advisor import FinancialAdvisorAgent
 from app.agents.functional_tool import FunctionalToolProvider, functional_tool
-from app.agents.prompts import DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+from app.agents.models import AgentIdentity
+from app.agents.prompts import (
+    DAY_TRADER_RESEARCH_AGENT_SYSTEM_PROMPT,
+    DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT,
+)
 from app.agents.skills_catalog import SkillsCatalog
 from app.core.config import Settings
 
@@ -28,27 +31,34 @@ _SECTOR_ETFS: dict[str, str] = {
 }
 
 
-@dataclass(frozen=True)
-class AgentIdentity:
-    provider: str
-    model: str
-
-
 class ResearchAgent(FunctionalToolProvider):
     """Research tool surface used by the OpenAI tool loop in pipeline.service."""
     _LOCAL_SKILL_TOOL_NAMES = {"search_skills", "read_skill"}
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        autonomous_mode: bool = False,
+        repo_root: Path | None = None,
+    ) -> None:
         self._settings = settings
-        self._advisor_delegate = FinancialAdvisorAgent(settings=settings)
+        self._autonomous_mode = autonomous_mode
+        self._repo_root_path = (
+            repo_root.resolve()
+            if repo_root is not None
+            else Path(__file__).resolve().parents[3]
+        )
+        self._advisor_delegate = FinancialAdvisorAgent(
+            settings=settings,
+            autonomous_mode=autonomous_mode,
+            repo_root=repo_root,
+        )
         self._skills = SkillsCatalog(
-            repo_root=self._repo_root(),
+            repo_root=self._repo_root_path,
             index_path=self._settings.AI_SKILLS_INDEX_PATH,
             skills_root=self._settings.AI_SKILLS_ROOT_PATH,
         )
-
-    def _repo_root(self) -> Path:
-        return Path(__file__).resolve().parents[3]
 
     @property
     def identity(self) -> AgentIdentity:
@@ -57,16 +67,20 @@ class ResearchAgent(FunctionalToolProvider):
         return AgentIdentity(provider=provider, model=model)
 
     def system_prompt(self) -> str:
-        base_prompt = self._settings.resolved_ai_system_prompt(
-            DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
+        default_prompt = (
+            DAY_TRADER_RESEARCH_AGENT_SYSTEM_PROMPT
+            if self._autonomous_mode
+            else DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT
         )
+        base_prompt = self._settings.resolved_ai_system_prompt(default_prompt)
         tools_context = (
             "For morning briefings, call `get_general_market_news_digest` first to collect "
             "broad stock-market and world-news context before ticker-level conclusions. "
             "Use `search_web` for broad internet search and fresh web snippets. "
             "Use `search_investment_news` to gather recent coverage by holdings, sector, "
             "or topic. Use `get_sector_performance` to compare broad sector momentum. "
-            "Use `get_polygon_snapshot` for symbol-level end-of-day context when needed."
+            "Use `get_polygon_snapshot` for symbol-level end-of-day context from Polygon when needed; "
+            "for intraday or current prints, prefer `search_web` / `search_investment_news`."
         )
         skills_context = self._skills.prompt_context(
             max_visible_skills=self._settings.AI_SKILLS_PROMPT_LIMIT
@@ -471,5 +485,9 @@ class ResearchAgent(FunctionalToolProvider):
         normalized_holdings = [
             str(item).strip().upper() for item in raw_holdings if str(item).strip()
         ]
-        report = generate_market_research(holdings=normalized_holdings, focus=focus)
+        report = generate_market_research(
+            holdings=normalized_holdings,
+            focus=focus,
+            autonomous_mode=self._autonomous_mode,
+        )
         return json.dumps(report.model_dump(mode="json"))

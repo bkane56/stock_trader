@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.main import app
 from app.api import routes as api_routes
+from app.schemas.recommendations import Recommendation
 
 
 client = TestClient(app)
@@ -52,7 +54,30 @@ def test_health_details_endpoint() -> None:
     assert "mcp_runtime_last_run" in payload
 
 
-def test_recommendations_endpoint() -> None:
+def test_recommendations_endpoint(monkeypatch) -> None:
+    """Route wiring; do not call live advisors (non-deterministic)."""
+    now = datetime.now(timezone.utc)
+    fixed = [
+        Recommendation(
+            symbol="AAPL",
+            action="hold",
+            confidence=0.7,
+            rationale="Stable for test.",
+            generated_at=now,
+        ),
+        Recommendation(
+            symbol="MSFT",
+            action="hold",
+            confidence=0.7,
+            rationale="Stable for test.",
+            generated_at=now,
+        ),
+    ]
+    monkeypatch.setattr(
+        api_routes,
+        "generate_initial_recommendations",
+        lambda symbols, *, autonomous_mode=False: fixed,
+    )
     response = client.get("/recommendations?watchlist=AAPL,MSFT")
     assert response.status_code == 200
     payload = response.json()
