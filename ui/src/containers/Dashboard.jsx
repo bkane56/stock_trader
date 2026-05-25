@@ -39,6 +39,7 @@ export function Dashboard({
   user,
   morningBriefing,
   isBriefingLoading,
+  briefingNotice,
   briefingError,
   openCashModal,
   tradingMode,
@@ -316,6 +317,17 @@ export function Dashboard({
               </div>
             ) : null}
 
+            {briefingNotice ? (
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-sm font-black text-slate-900 mb-1">
+                  {briefingNotice.title}
+                </p>
+                <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                  {briefingNotice.body}
+                </p>
+              </div>
+            ) : null}
+
             {briefingError ? (
               <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100">
                 <p className="text-xs font-medium text-amber-700">
@@ -328,7 +340,7 @@ export function Dashboard({
               <>
                 <div className="p-5 rounded-2xl bg-teal-50 border border-teal-100">
                   <p className="text-sm font-black text-teal-900 mb-1">
-                    Market Context
+                    {briefingNotice ? "Things to watch at the open" : "Market Context"}
                   </p>
                   <p className="text-xs font-medium text-teal-700 leading-relaxed">
                     {morningBriefing.macro_news_summary}

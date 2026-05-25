@@ -1,162 +1,233 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# InvestAI
 
-# InvestAI — AI-Powered Stock Trading Assistant
+**AI-powered portfolio assistant** — multi-agent research, daily briefings, and three trading automation modes on a production-grade React + FastAPI stack.
 
-A full-stack AI stock trading assistant built with React 19 + FastAPI, powered by the OpenAI Agents SDK.
+Built as a portfolio project demonstrating full-stack architecture, OpenAI Agents SDK orchestration, real-time persistence, and accessible UI engineering.
 
-## Features
+> **Disclaimer:** Decision-support and paper-style portfolio tooling only. Not financial advice. Market data may be delayed.
 
-- **Three trading modes:** Manual, Assisted Agent (AI suggestions), and Autonomous Agent (AI-driven loop)
-- **AI recommendations:** Multi-agent pipeline generates stock picks with thesis, risk rating, and confidence scores
-- **Morning briefings:** Daily AI-generated portfolio briefings with cash deployment options and risk flags
-- **Real-time portfolio tracking:** InstantDB-backed portfolio persistence with intraday pricing refresh
-- **Risk metrics:** Sharpe ratio, drawdown analysis, sector concentration, and position sizing guidance
-- **Market research:** AI sector analysis and macro news summaries via the research agent
+---
+
+## At a glance
+
+| | |
+|---|---|
+| **Frontend** | React 19, Vite 6, Redux 5, Tailwind CSS v4, Recharts |
+| **Backend** | Python 3.12+, FastAPI, Pydantic v2, OpenAI Agents SDK |
+| **Persistence** | InstantDB (auth, portfolios, positions, audit events) |
+| **Market data** | Polygon.io, Yahoo sector quotes, web/news search |
+| **Deploy** | Vercel (SPA) + Railway/Docker (API) |
+| **Quality** | Vitest, vitest-axe (WCAG 2.2), pytest (≥90% target) |
+
+**Repository:** [github.com/bkane56/stock_trader](https://github.com/bkane56/stock_trader)  
+**Architecture deep-dive:** [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---
+
+## What it does
+
+1. **Morning briefing** — AI analyzes your holdings, sector context, and cash position; returns structured actions, deployment ideas, and optional trade recommendations.
+2. **Three trading modes** — Manual (you trade), Assisted (you approve AI picks), Autonomous (AI executes within guardrails during market hours).
+3. **Portfolio tracking** — Real-time sync via InstantDB with intraday price refresh, P&L metrics, and transaction history.
+4. **Strategy builder** — Growth vs fixed-income allocation with visual breakdown.
+5. **Risk guardrails** — Cash reserve floor, position count limits, confidence thresholds, and fee-ratio caps before autonomous execution.
+
+---
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Browser["React SPA · Vercel"]
+        direction TB
+        Pages[Dashboard · Portfolio · Strategy · About]
+        Store[Redux — portfolio + trade state]
+        Hooks[Briefing · Sync · Autonomous hooks]
+        Pages --> Store
+        Pages --> Hooks
+    end
+
+    subgraph Cloud["Backend · FastAPI"]
+        direction TB
+        REST["/briefings · /quotes · /research"]
+        Agents[OpenAI Agents SDK]
+        FA[Financial Advisor Agent]
+        RA[Research Agent]
+        REST --> Agents
+        Agents --> FA
+        FA --> RA
+    end
+
+    subgraph Data["Data & services"]
+        IDB[(InstantDB)]
+        PG[Polygon.io]
+        LLM[OpenAI API]
+    end
+
+    Hooks <-->|HTTPS| REST
+    Hooks <-->|sync| IDB
+    REST --> PG
+    Agents --> LLM
 ```
-┌─────────────────────────────────┐      ┌───────────────────────────────────┐
-│   React 19 + Vite (Vercel)      │      │   FastAPI (Docker / Railway)       │
-│                                 │      │                                   │
-│  Redux store                    │ HTTP │  /recommendations  ──► Advisor    │
-│  ├── portfolioReducer           │◄────►│  /research         ──► Research   │
-│  ├── tradeReducer               │      │  /briefings/latest ──► Briefing   │
-│  └── settingsReducer            │      │                                   │
-│                                 │      │  OpenAI Agents SDK                │
-│  Custom hooks                   │      │  ├── FinancialAdvisorAgent         │
-│  ├── usePortfolioSync (InstDB)  │      │  └── ResearchAgent                │
-│  ├── useBriefing                │      │                                   │
-│  ├── useAutonomousTrading       │      │  Pipeline modules                 │
-│  └── useMarketRefresh           │      │  ├── orchestrator.py              │
-│                                 │      │  ├── briefing_logic.py            │
-│  InstantDB (client persistence) │      │  ├── recommendation_runner.py     │
-└─────────────────────────────────┘      │  └── persistence.py               │
-                                         └───────────────────────────────────┘
+
+### End-to-end briefing flow
+
+```mermaid
+sequenceDiagram
+    participant UI as React Dashboard
+    participant DB as InstantDB
+    participant API as FastAPI
+    participant AI as Agent Pipeline
+
+    UI->>DB: Load portfolio
+    UI->>API: Refresh holding prices
+    UI->>API: POST /briefings/generate
+    API->>AI: Research → Advisor synthesis
+    AI-->>API: Structured briefing JSON
+    API-->>UI: Actions + recommendations
+    Note over UI: Assisted: user approves<br/>Autonomous: auto-execute (market hours)
+    UI->>DB: Record trades + events
 ```
 
-## Run Locally
+Full diagrams (AI pipeline, deployment, data model): **[ARCHITECTURE.md](ARCHITECTURE.md)**
 
-**Prerequisites:**  Node.js
+---
 
+## Tech stack
 
-1. Install dependencies:
-   `yarn install`
-2. Copy [.env.example](.env.example) to `.env.local` and add your keys:
-   - `VITE_INSTANTDB_APP_ID`
-   - `AI_PROVIDER` (`openai`)
-   - `AI_MODEL` (`gpt-4.2`)
-   - `POLYGON_API_KEY`
-   - `OPENAI_API_KEY`
-   - `ANTHROPIC_API_KEY`
-   - `PUSHOVER_USER`
-   - `PUSHOVER_TOKEN`
-   - `PUSHOVER_URL`
-3. Run the app:
-   `yarn run dev`
+### Frontend (`ui/src/`)
 
-## Vercel Deployment (Dev First)
+- **React 19** + **Vite 6** — SPA with lazy-loaded modals and strategy page
+- **Redux 5** — Global portfolio and trade state; hydrated from InstantDB on load
+- **React Router 7** — Client routing with accessible nav landmarks
+- **Tailwind CSS v4** — Mobile-first responsive layout, dark mode
+- **InstantDB** — Magic-code auth, real-time portfolio persistence
+- **Vitest + Testing Library + vitest-axe** — Unit tests and WCAG checks
 
-This repo is configured for Vercel with:
-- `vercel.json` for Vite + SPA routing.
-- npm scripts for local Vercel dev, preview deploys, and production deploys.
+### Backend (`python_ai/`)
 
-### 0) Confirm the CLI is logged in
+- **FastAPI** — REST API with OpenAPI at `/docs`
+- **OpenAI Agents SDK** — Multi-agent orchestration with MCP tool servers
+- **Pydantic v2** — Typed request/response contracts for UI consumption
+- **uv** — Dependency and virtualenv management
+- **pytest** — API, agent, briefing, and market-hours tests
 
-After `vercel login`, this must print your Vercel email (not an error):
+### External integrations
+
+- **Polygon.io** — End-of-day and previous-close quotes
+- **Serper / Google News / Yahoo** — Research agent market intelligence
+- **Optional MCP servers** — Fetch, Playwright, Brave search, Polygon MCP
+
+---
+
+## Project structure
+
+```
+stock_trader/
+├── ui/src/
+│   ├── App.jsx                 # Shell, routing, trade orchestration
+│   ├── containers/             # Dashboard, Portfolio, Strategy, About
+│   ├── hooks/                  # Briefing, portfolio sync, autonomous trading
+│   ├── reducers/               # Redux slices
+│   └── services/               # API clients, InstantDB store
+├── python_ai/
+│   ├── app/
+│   │   ├── api/routes.py       # REST endpoints
+│   │   ├── agents/             # Financial advisor + research agents
+│   │   └── pipeline/           # Orchestrator, briefing logic, persistence
+│   └── tests/
+├── instant.schema.ts           # InstantDB schema
+├── ARCHITECTURE.md             # System design (Mermaid diagrams)
+└── vercel.json                 # Frontend deploy config
+```
+
+---
+
+## Run locally
+
+**Prerequisites:** Node.js 20+, Python 3.12+, [uv](https://docs.astral.sh/uv/)
+
+### 1. Frontend
 
 ```bash
-npx vercel@48.6.0 whoami
+yarn install
+cp .env.example .env.local   # add keys below
+yarn dev                     # http://localhost:3000
 ```
 
-If you see **“No existing credentials”**, the browser login did not save a token for this CLI (or you used a different machine). Fix it with either:
-
-- Run `npx vercel@48.6.0 login` again in **your normal terminal** (same user account as this repo), then re-check `whoami`, **or**
-- Create a token at [Vercel → Account → Tokens](https://vercel.com/account/tokens), then run commands with it (do not commit the token):
+### 2. Backend
 
 ```bash
-export VERCEL_TOKEN="vercel_token_..."   # session-only; use your shell profile for persistence if desired
-npx vercel@48.6.0 whoami
+cd python_ai && uv sync --extra dev
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
-### 1) Link the repo to a Vercel project (one-time)
+Health check: `curl http://127.0.0.1:8010/health/details`
 
-Creates `.vercel/project.json` (gitignored). Use a project name you want on Vercel (example: `stock-trader`):
+### 3. Environment variables
+
+| Variable | Layer | Purpose |
+|----------|-------|---------|
+| `VITE_INSTANTDB_APP_ID` | Frontend | Portfolio persistence + auth |
+| `VITE_PYTHON_AI_BASE_URL` | Frontend | API base URL (default `http://127.0.0.1:8010`) |
+| `OPENAI_API_KEY` | Backend | Agent execution |
+| `POLYGON_API_KEY` | Backend | Stock quotes |
+| `AI_PROVIDER` / `AI_MODEL` | Backend | Model selection (default OpenAI) |
+
+See [`.env.example`](.env.example) and [INSTANTDB_SETUP.md](INSTANTDB_SETUP.md) for the full list.
+
+---
+
+## Deploy
+
+| Target | Guide |
+|--------|--------|
+| **Frontend (Vercel)** | `yarn vercel:preview` / `yarn vercel:prod` — see [Vercel section below](#vercel-deployment) |
+| **API (Railway/Docker)** | [python_ai/DEPLOY.md](python_ai/DEPLOY.md) |
+| **InstantDB** | [INSTANTDB_SETUP.md](INSTANTDB_SETUP.md) |
+
+Set `VITE_PYTHON_AI_BASE_URL` on Vercel to your **HTTPS** API URL. Configure `CORS_ALLOW_ORIGINS` on the API for your Vercel domain.
+
+---
+
+## Vercel deployment
+
+This repo includes `vercel.json` for Vite SPA routing.
 
 ```bash
-npx vercel@48.6.0 link --yes -p stock-trader
+npx vercel@48.6.0 link --yes -p stock-trader   # one-time
+yarn vercel:dev                                 # local Vercel dev
+yarn vercel:preview                             # preview deploy
+yarn vercel:prod                                # production deploy
 ```
 
-Interactive alternative (pick team/project in prompts):
+**Preview vs production:** Only `yarn vercel:prod` uses Production env vars. Preview deploys use Preview env vars in the Vercel dashboard.
+
+**Required Vercel env vars:** `VITE_INSTANTDB_APP_ID`, `VITE_PYTHON_AI_BASE_URL` (HTTPS, not `127.0.0.1`).
+
+CORS details: [python_ai/README.md](python_ai/README.md#cors-and-the-vercel-frontend)
+
+---
+
+## Engineering highlights
+
+- **Structured AI outputs** — Pydantic schemas end-to-end; execution logic is deterministic, not prompt-dependent
+- **Market-hours awareness** — Autonomous trading gated on US equity session (frontend + backend)
+- **Accessibility** — Semantic landmarks, labeled controls, dialog focus traps, automated axe checks in CI path
+- **Resilient briefing** — Generate with fallback to last persisted briefing artifact
+- **Separation of concerns** — Agents recommend; guardrails and user mode decide execution
+
+---
+
+## Tests
 
 ```bash
-npx vercel@48.6.0 link
+yarn test                    # frontend unit + a11y
+cd python_ai && uv run pytest   # backend
 ```
 
-### 2) Run Vercel locally first
+---
 
-```bash
-yarn vercel:dev
-```
+## License
 
-Notes:
-- Keep the Python API running locally on `http://127.0.0.1:8010` for full features.
-- Frontend API calls use `VITE_PYTHON_AI_BASE_URL` (defaults to `http://127.0.0.1:8010`).
-
-### 3) Deploy preview (dev/staging)
-
-```bash
-yarn vercel:preview
-```
-
-This runs `vercel deploy` **without** `--prod`, so it is a **Preview** deployment (uses **Preview** env vars in the dashboard). The script also passes **`--skip-domain`** so Vercel does **not** auto-assign your production domain / alias to this deploy — you get a normal preview URL.
-
-**Why the CLI says “Production”:** Vercel’s output is easy to misread. A line like `Production: https://…vercel.app` often means “here is the main URL for this deployment,” **not** “this used Production environment variables.” Only `vercel deploy --prod` (see below) is a **production** deploy and uses **Production** env vars. Open the **Inspect** link in the CLI output to confirm *Preview* vs *Production* in the dashboard.
-
-### 4) Deploy production
-
-```bash
-yarn vercel:prod
-```
-
-This is `vercel deploy --prod` — promotes to production and uses **Production** env vars.
-
-### Recommended Vercel Environment Variables
-
-Set these in Vercel for Preview and Production as needed:
-- `VITE_INSTANTDB_APP_ID`
-- `VITE_PYTHON_AI_BASE_URL` — **HTTPS URL of your deployed Python API** (e.g. `https://stock-trader-api.fly.dev`).  
-  **Do not** use `http://127.0.0.1:8010` here: in the browser that means “the visitor’s own computer,” not your server, so requests fail or hit CORS.
-
-On the **deployed Python service**, allow your Vercel origins via `CORS_ALLOW_ORIGINS` (production URL) and optionally `CORS_ALLOW_ORIGIN_REGEX` for all `*.vercel.app` previews — see [`python_ai/README.md`](python_ai/README.md#cors-and-the-vercel-frontend).
-
-**If the live site still calls `http://127.0.0.1:8010`:** the bundle was built without `VITE_PYTHON_AI_BASE_URL`. Common causes: (1) the variable is only set for **Production** but you’re on a **Preview** URL — add the same variable under **Preview** in Vercel; (2) you didn’t **Redeploy** after saving env; (3) typo in the name (`VITE_PYTHON_AI_BASE_URL`). After fixing, the build should fail on Vercel if the var is still missing (`VERCEL=1`).
-
-## InstantDB Setup
-
-Frontend portfolio persistence and authentication use InstantDB.
-
-- Website configuration guide: [`INSTANTDB_SETUP.md`](INSTANTDB_SETUP.md)
-- Schema + perms files: [`instant.schema.ts`](instant.schema.ts), [`instant.perms.ts`](instant.perms.ts)
-- Uses magic-code authentication by default.
-- Persists users, portfolios, positions, and portfolio events.
-- Computes `totalValue` and `investedAmount` from position data in phase 1.
-
-## AI Service (Python 3.12+)
-
-An initial AI service scaffold is available in [`python_ai/`](python_ai/).
-
-**Deploy the API** (Railway, Render, etc.) so Vercel can call it over HTTPS: see [`python_ai/DEPLOY.md`](python_ai/DEPLOY.md).
-
-1. Install Python dependencies with `uv`:
-   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv sync --extra dev`
-2. Start the API:
-   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010`
-   Runtime details endpoint:
-   `curl "http://127.0.0.1:8010/health/details"`
-3. Run a one-shot pipeline:
-   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run python -m app.pipeline.run_once`
-4. Print latest local report:
-   `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run python -m app.reports.latest`
+Apache-2.0 (see file headers).

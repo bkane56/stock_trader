@@ -20,6 +20,7 @@ import {
   Briefcase,
   Settings2,
   ChevronDown,
+  Info,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
@@ -29,6 +30,7 @@ import { getTradingMode, persistTradingMode, TRADING_MODES } from "./lib/trading
 import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
+import { About } from "./containers/About";
 import { fetchSymbolQuote } from "./services/marketData";
 import { resolveCompanyName } from "./lib/companyNames";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
@@ -245,7 +247,7 @@ export default function App() {
     portfolioId,
   });
 
-  const { morningBriefing, isBriefingLoading, briefingError, setBriefingRefreshNonce } =
+  const { morningBriefing, isBriefingLoading, briefingNotice, briefingError, setBriefingRefreshNonce } =
     useBriefing({
       holdings,
       holdingsStructureKey,
@@ -860,6 +862,7 @@ export default function App() {
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/portfolio", label: "Portfolio", icon: Briefcase },
     { to: "/strategy", label: "Strategy Builder", icon: PieChart },
+    { to: "/about", label: "About", icon: Info },
   ];
 
   // --- Auth guards ---
@@ -1156,6 +1159,7 @@ export default function App() {
                   user={activeUser || currentUser}
                   morningBriefing={morningBriefing}
                   isBriefingLoading={isBriefingLoading}
+                  briefingNotice={briefingNotice}
                   briefingError={briefingError}
                   tradingMode={activeTradingMode.id}
                   onTradingModeChange={handleTradingModeChange}
@@ -1199,6 +1203,7 @@ export default function App() {
                 </Suspense>
               }
             />
+            <Route path="/about" element={<About />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AnimatePresence>
@@ -1216,19 +1221,24 @@ export default function App() {
                 InvestAI
               </span>
             </div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center md:text-left">
-              © 2026 InvestAI Technologies. All investments involve risk.
-              Financial data delayed by 15 minutes.
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center md:text-left max-w-md">
+              Portfolio demonstration project. Not financial advice. Market data may be delayed.
             </p>
-            <div className="flex gap-8">
-              {["Privacy Policy", "Terms of Service", "Support"].map((link) => (
-                <span
-                  key={link}
-                  className="text-[10px] font-black text-slate-400 uppercase tracking-widest"
-                >
-                  {link}
-                </span>
-              ))}
+            <div className="flex flex-wrap justify-center gap-6">
+              <NavLink
+                to="/about"
+                className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-teal-400"
+              >
+                Architecture
+              </NavLink>
+              <a
+                href="https://github.com/bkane56/stock_trader"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-teal-400"
+              >
+                GitHub
+              </a>
             </div>
           </div>
         </div>
