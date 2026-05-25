@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import {
   PieChart as RePieChart,
@@ -15,6 +15,7 @@ export function StrategyBuilder({
   onApplyStrategy,
   isApplyingStrategy = false,
 }) {
+  const splitSliderId = useId();
   const [draftSplit, setDraftSplit] = useState(strategySplit);
   const [applyFeedback, setApplyFeedback] = useState("");
 
@@ -74,7 +75,7 @@ export function StrategyBuilder({
       className="space-y-10"
     >
       <header>
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight dark:text-slate-100">
           Portfolio Strategy Builder
         </h1>
         <p className="text-slate-500 font-medium mt-2 max-w-2xl">
@@ -93,8 +94,11 @@ export function StrategyBuilder({
             </h2>
             <div className="space-y-16">
               <div className="space-y-6">
-                <div className="flex justify-between items-end">
-                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                <div className="flex justify-between items-end gap-4">
+                  <label
+                    htmlFor={splitSliderId}
+                    className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400"
+                  >
                     Asset Split
                   </label>
                   <div className="text-right">
@@ -108,6 +112,7 @@ export function StrategyBuilder({
                   </div>
                 </div>
                 <input
+                  id={splitSliderId}
                   type="range"
                   min="0"
                   max="100"
@@ -117,6 +122,10 @@ export function StrategyBuilder({
                     setDraftSplit(Number(e.target.value));
                     setApplyFeedback("");
                   }}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={draftSplit}
+                  aria-valuetext={`${draftSplit}% growth, ${100 - draftSplit}% fixed income`}
                   className="w-full h-3 bg-slate-100 rounded-full appearance-none cursor-pointer accent-teal-600"
                 />
                 <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -139,14 +148,17 @@ export function StrategyBuilder({
 
           <div className="mt-12 pt-8 border-t border-slate-100">
             <button
+              type="button"
               onClick={handleApplyStrategy}
               disabled={!hasPendingChanges || isApplyingStrategy}
+              aria-busy={isApplyingStrategy}
               className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 text-lg uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isApplyingStrategy ? "Applying..." : "Apply New Strategy"}
             </button>
             {applyFeedback ? (
               <p
+                role="status"
                 className={`text-center text-[10px] font-bold mt-3 uppercase tracking-widest ${
                   applyFeedback.startsWith("Strategy applied")
                     ? "text-emerald-600"
@@ -166,10 +178,10 @@ export function StrategyBuilder({
         {/* Visualizer */}
         <div className="lg:col-span-7 space-y-8">
           <GlassCard className="p-10 flex flex-col items-center">
-            <h3 className="text-xl font-black text-slate-900 mb-12 w-full tracking-tight">
+            <h2 className="text-xl font-black text-slate-900 mb-12 w-full tracking-tight dark:text-slate-100">
               Visual Portfolio Composition
-            </h3>
-            <div className="relative w-80 h-80">
+            </h2>
+            <div className="relative w-full max-w-xs sm:max-w-sm aspect-square mx-auto">
               <ResponsiveContainer width="100%" height="100%">
                 <RePieChart>
                   <Pie

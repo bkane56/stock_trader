@@ -1,3 +1,4 @@
+/** Available trading automation modes, ordered from most to least manual. */
 export const TRADING_MODES = [
   {
     id: "manual_user",
@@ -21,19 +22,34 @@ export const TRADING_MODES = [
   },
 ];
 
+/** Default trading mode ID used when no persisted preference exists. */
 export const DEFAULT_TRADING_MODE = TRADING_MODES[0].id;
 const TRADING_MODE_STORAGE_KEY = "investai.tradingMode";
 
 const MODES_BY_ID = new Map(TRADING_MODES.map((mode) => [mode.id, mode]));
 
+/**
+ * Returns the given mode ID if it is valid, otherwise returns the default.
+ * @param {string} mode
+ * @returns {string}
+ */
 export function normalizeTradingMode(mode) {
   return MODES_BY_ID.has(mode) ? mode : DEFAULT_TRADING_MODE;
 }
 
+/**
+ * Looks up a trading mode object by ID, falling back to the default mode object.
+ * @param {string} mode
+ * @returns {{ id: string, label: string, shortLabel: string, description: string }}
+ */
 export function getTradingMode(mode) {
   return MODES_BY_ID.get(normalizeTradingMode(mode)) || TRADING_MODES[0];
 }
 
+/**
+ * Reads the persisted trading mode from localStorage, falling back to the default.
+ * @returns {string}
+ */
 export function readPersistedTradingMode() {
   if (typeof window === "undefined") {
     return DEFAULT_TRADING_MODE;
@@ -46,6 +62,10 @@ export function readPersistedTradingMode() {
   }
 }
 
+/**
+ * Persists the trading mode to localStorage.
+ * @param {string} mode
+ */
 export function persistTradingMode(mode) {
   if (typeof window === "undefined") return;
   try {

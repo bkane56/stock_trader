@@ -55,10 +55,17 @@ class SkillsCatalog:
                     "source": metadata.get("source", "unknown"),
                 }
 
-        # Keep index-only skills when available (backward compatibility).
         parsed: dict[str, dict[str, str]] = dict(discovered_skills)
         for skill_id, item in indexed_skills.items():
             if skill_id in parsed:
+                continue
+            skill_path = Path(item["path"])
+            skill_dir = (
+                skill_path.resolve()
+                if skill_path.is_absolute()
+                else (self._repo_root / skill_path).resolve()
+            )
+            if not (skill_dir / "SKILL.md").is_file():
                 continue
             parsed[skill_id] = item
 

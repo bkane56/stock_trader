@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
@@ -9,6 +8,7 @@ import httpx
 
 from app.agents.financial_advisor import FinancialAdvisorAgent
 from app.agents.functional_tool import FunctionalToolProvider, functional_tool
+from app.agents.models import AgentIdentity
 from app.agents.prompts import (
     DAY_TRADER_RESEARCH_AGENT_SYSTEM_PROMPT,
     DEFAULT_RESEARCH_AGENT_SYSTEM_PROMPT,
@@ -29,12 +29,6 @@ _SECTOR_ETFS: dict[str, str] = {
     "Technology": "XLK",
     "Utilities": "XLU",
 }
-
-
-@dataclass(frozen=True)
-class AgentIdentity:
-    provider: str
-    model: str
 
 
 class ResearchAgent(FunctionalToolProvider):

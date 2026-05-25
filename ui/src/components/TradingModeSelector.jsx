@@ -10,7 +10,11 @@ export function TradingModeSelector({
 }) {
   const selected = normalizeTradingMode(value);
   return (
-    <div className={cn("space-y-3", className)}>
+    <div
+      className={cn("space-y-3", className)}
+      role="radiogroup"
+      aria-label="Trading automation mode"
+    >
       {TRADING_MODES.map((mode) => {
         const isSelected = mode.id === selected;
         return (
@@ -21,10 +25,11 @@ export function TradingModeSelector({
             className={cn(
               "w-full rounded-2xl border px-4 py-3 text-left transition-all",
               isSelected
-                ? "border-teal-300 bg-teal-50 shadow-sm"
-                : "border-slate-200 bg-white hover:border-slate-300",
+                ? "border-teal-300 bg-teal-50 shadow-sm dark:border-teal-700 dark:bg-teal-900/30"
+                : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600",
             )}
-            aria-pressed={isSelected}
+            role="radio"
+            aria-checked={isSelected}
           >
             <div className="flex items-center justify-between gap-3">
               <p
@@ -40,6 +45,7 @@ export function TradingModeSelector({
                   "h-2.5 w-2.5 rounded-full",
                   isSelected ? "bg-teal-500" : "bg-slate-300",
                 )}
+                aria-hidden="true"
               />
             </div>
             {showDescriptions ? (

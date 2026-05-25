@@ -49,7 +49,7 @@ export function Portfolio({
     >
       <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+          <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight dark:text-slate-100">
             Portfolio Holdings
           </h1>
           <p className="text-slate-500 font-medium mt-2">
@@ -61,7 +61,7 @@ export function Portfolio({
             </Badge>
           </div>
         </div>
-        <GlassCard className="min-w-[300px] p-6">
+        <GlassCard className="w-full md:min-w-[300px] p-6">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
               Current Cash Reserves
@@ -70,14 +70,15 @@ export function Portfolio({
               <Wallet size={18} />
             </div>
           </div>
-          <h3 className="text-3xl font-black text-slate-900 tracking-tighter">
+          <p className="text-3xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
             ${formatCurrency(cash)}
-          </h3>
+          </p>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
             Buying Power Ready for Deployment
           </p>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <button
+              type="button"
               onClick={() => openCashModal("deposit")}
               className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
             >
@@ -85,6 +86,7 @@ export function Portfolio({
               Add Cash
             </button>
             <button
+              type="button"
               onClick={() => openCashModal("withdraw")}
               className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors flex items-center justify-center gap-1.5"
             >
@@ -119,23 +121,26 @@ export function Portfolio({
 
       <GlassCard className="overflow-hidden p-0">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-100">
+          <table className="w-full min-w-[48rem] divide-y divide-slate-100">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="px-4 sm:px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Stock Ticker/Name
                 </th>
-                <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="px-4 sm:px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Shares
                 </th>
-                <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="px-4 sm:px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Current Price
                 </th>
-                <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="px-4 sm:px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Total Value
                 </th>
-                <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-1/3">
+                <th className="px-4 sm:px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest w-1/3">
                   AI Analysis
+                </th>
+                <th className="px-4 sm:px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
@@ -145,10 +150,9 @@ export function Portfolio({
                 return (
                   <tr
                     key={holding.symbol}
-                    className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                    onClick={() => openTradeModal(holding)}
+                    className="hover:bg-slate-50 transition-colors group"
                   >
-                    <td className="px-8 py-6 whitespace-nowrap">
+                    <td className="px-4 sm:px-8 py-6 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-12 w-12 bg-teal-50 flex items-center justify-center rounded-2xl text-teal-600 font-black text-sm group-hover:bg-white transition-colors">
                           {holding.symbol}
@@ -163,16 +167,16 @@ export function Portfolio({
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
+                    <td className="px-4 sm:px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
                       {holding.shares.toFixed(2)}
                     </td>
-                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
+                    <td className="px-4 sm:px-8 py-6 whitespace-nowrap text-right text-sm font-bold text-slate-600">
                       ${holding.price.toFixed(2)}
                     </td>
-                    <td className="px-8 py-6 whitespace-nowrap text-right text-sm font-black text-slate-900">
+                    <td className="px-4 sm:px-8 py-6 whitespace-nowrap text-right text-sm font-black text-slate-900">
                       ${formatCurrency(holding.totalValue)}
                     </td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 sm:px-8 py-6">
                       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 group-hover:bg-white transition-colors">
                         <div className="mb-2 flex items-center gap-2">
                           <Badge variant="info">
@@ -189,6 +193,15 @@ export function Portfolio({
                         </p>
                       </div>
                     </td>
+                    <td className="px-4 sm:px-8 py-6 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => openTradeModal(holding)}
+                        className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-teal-700 hover:bg-teal-100 transition-colors"
+                      >
+                        Trade
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -196,33 +209,44 @@ export function Portfolio({
             <tfoot className="bg-slate-50/50">
               <tr>
                 <td
-                  className="px-8 py-6 font-black text-slate-900 text-lg"
+                  className="px-4 sm:px-8 py-6 font-black text-slate-900 text-lg"
                   colSpan={3}
                 >
                   Total Portfolio Value
                 </td>
-                <td className="px-8 py-6 text-right font-black text-slate-900 text-2xl tracking-tighter">
+                <td className="px-4 sm:px-8 py-6 text-right font-black text-slate-900 text-xl sm:text-2xl tracking-tighter">
                   ${formatCurrency(totalValue)}
                 </td>
-                <td className="px-8 py-6"></td>
+                <td className="px-4 sm:px-8 py-6" colSpan={2} />
               </tr>
             </tfoot>
           </table>
         </div>
       </GlassCard>
 
-      <div className="flex justify-end gap-4">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:justify-end gap-3 sm:gap-4">
         <button
+          type="button"
           onClick={openAddPurchaseModal}
-          className="px-8 py-4 rounded-2xl border-2 border-teal-600 text-teal-600 text-xs font-black uppercase tracking-widest hover:bg-teal-50 transition-all flex items-center gap-2"
+          className="w-full sm:w-auto px-8 py-4 rounded-2xl border-2 border-teal-600 text-teal-600 text-xs font-black uppercase tracking-widest hover:bg-teal-50 transition-all flex items-center justify-center gap-2"
         >
-          <Plus size={18} />
+          <Plus size={18} aria-hidden="true" />
           Trade Stocks
         </button>
-        <button className="px-8 py-4 rounded-2xl border-2 border-slate-200 text-xs font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all">
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="w-full sm:w-auto px-8 py-4 rounded-2xl border-2 border-slate-200 text-xs font-black uppercase tracking-widest text-slate-400 cursor-not-allowed"
+        >
           Export CSV
         </button>
-        <button className="px-8 py-4 rounded-2xl bg-teal-600 text-white text-xs font-black uppercase tracking-widest hover:bg-teal-700 shadow-lg shadow-teal-100 transition-all">
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-slate-300 text-white text-xs font-black uppercase tracking-widest cursor-not-allowed"
+        >
           Rebalance Portfolio
         </button>
       </div>

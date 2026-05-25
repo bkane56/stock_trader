@@ -12,16 +12,17 @@ def _write_text(path: Path, content: str) -> None:
 
 
 def test_skills_catalog_search_and_read(tmp_path: Path) -> None:
+    root = tmp_path / "skills_fixture"
     _write_text(
-        tmp_path / ".cursor" / "skills" / "financial-risk-analysis" / "SKILL.md",
+        root / "financial-risk-analysis" / "SKILL.md",
         "# Financial Risk Analysis\nUse strict stop-loss planning.",
     )
     _write_text(
-        tmp_path / ".cursor" / "skills" / "generic-research" / "SKILL.md",
+        root / "generic-research" / "SKILL.md",
         "# Generic Research\nGeneral research workflow.",
     )
 
-    catalog = SkillsCatalog(repo_root=tmp_path)
+    catalog = SkillsCatalog(repo_root=tmp_path, skills_root=str(root))
     search_results = catalog.search(query="risk", limit=5)
     assert len(search_results) == 1
     assert search_results[0]["id"] == "financial-risk-analysis"
@@ -37,14 +38,15 @@ def test_skills_catalog_search_and_read(tmp_path: Path) -> None:
 
 
 def test_financial_advisor_prompt_includes_skills_preview(tmp_path: Path) -> None:
+    root = tmp_path / "skills_fixture"
     _write_text(
-        tmp_path / ".cursor" / "skills" / "volatility-planning" / "SKILL.md",
+        root / "volatility-planning" / "SKILL.md",
         "# Volatility Planning\nAdjust position size during volatility spikes.",
     )
 
     settings = Settings(
         AI_SKILLS_INDEX_PATH=str(tmp_path / "skills_index.json"),
-        AI_SKILLS_ROOT_PATH=str(tmp_path / ".cursor" / "skills"),
+        AI_SKILLS_ROOT_PATH=str(root),
         AI_SKILLS_PROMPT_LIMIT=5,
     )
     agent = FinancialAdvisorAgent(settings=settings, repo_root=tmp_path)

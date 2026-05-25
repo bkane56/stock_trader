@@ -1,12 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { motion } from "motion/react";
-import { X } from "lucide-react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import { resolveCompanyName } from "../lib/companyNames";
 import { TRANSACTION_FEE_USD } from "../lib/tradingConfig";
 import { formatCurrency } from "../lib/formatCurrency";
 import { TRADEABLE_STOCKS } from "../data/tradeableStocks";
 import { fetchSymbolQuote } from "../services/marketData";
+import { ModalFrame } from "./ModalFrame";
 
 export const TradeModal = ({
   isOpen,
@@ -19,6 +18,10 @@ export const TradeModal = ({
   experienceMode = "basic",
   onExecuteTrade,
 }) => {
+  const tickerInputId = useId();
+  const stockSelectId = useId();
+  const priceInputId = useId();
+  const sharesInputId = useId();
   const manualTradingDisabled = tradingMode === "autonomous_agent";
   const isAddPurchaseFlow = !holding;
   const [mode, setMode] = useState("buy");
@@ -39,7 +42,7 @@ export const TradeModal = ({
       price: portfolioStock.price,
     }));
     const unheldStocks = TRADEABLE_STOCKS.filter(
-      (stock) => !heldSymbols.has(stock.symbol)
+      (stock) => !heldSymbols.has(stock.symbol),
     );
     return [...heldStocks, ...unheldStocks];
   }, [holdings]);
@@ -55,7 +58,7 @@ export const TradeModal = ({
           confidence: Number(idea.confidence) || 0,
         }))
         .filter((idea) => idea.symbol),
-    [morningBriefing]
+    [morningBriefing],
   );
 
   const stocksBySymbol = useMemo(() => {
@@ -89,7 +92,7 @@ export const TradeModal = ({
   const estimatedTotalWithFee = estimatedTotal + (mode === "buy" ? TRANSACTION_FEE_USD : 0);
   const holdingsMarketValue = (holdings || []).reduce(
     (sum, item) => sum + (Number(item?.totalValue) || Number(item?.shares) * Number(item?.price) || 0),
-    0
+    0,
   );
   const reserveFloor = Math.max(0, (Number(cash) + holdingsMarketValue) * 0.1);
   const spendableCash = Math.max(0, Number(cash) - reserveFloor);
@@ -203,264 +206,281 @@ export const TradeModal = ({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-      onClick={onClose}
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isAddPurchaseFlow ? "Add Purchase" : "Trade Stock"}
     >
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-        className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-slate-800">
-            {isAddPurchaseFlow ? "Add Purchase" : "Trade Stock"}
-          </h2>
+      <div className="p-6 sm:p-8">
+        <div
+          className="bg-slate-100 p-1.5 rounded-2xl flex mb-8 dark:bg-slate-800"
+          role="group"
+          aria-label="Order type"
+        >
           <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors"
+            type="button"
+            onClick={() => setMode("buy")}
+            aria-pressed={mode === "buy"}
+            className={cn(
+              "flex-1 py-2.5 px-4 rounded-xl text-sm font-bold transition-all",
+              mode === "buy"
+                ? "bg-white text-emerald-600 shadow-sm dark:bg-slate-900"
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-300",
+            )}
           >
-            <X size={24} />
+            Buy
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("sell")}
+            aria-pressed={mode === "sell"}
+            className={cn(
+              "flex-1 py-2.5 px-4 rounded-xl text-sm font-bold transition-all",
+              mode === "sell"
+                ? "bg-white text-rose-600 shadow-sm dark:bg-slate-900"
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-300",
+            )}
+          >
+            Sell
           </button>
         </div>
 
-        <div className="p-8">
-          <div className="bg-slate-100 p-1.5 rounded-2xl flex mb-8">
-            <button
-              onClick={() => setMode("buy")}
-              className={cn(
-                "flex-1 py-2.5 px-4 rounded-xl text-sm font-bold transition-all",
-                mode === "buy"
-                  ? "bg-white text-emerald-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
-            >
-              Buy
-            </button>
-            <button
-              onClick={() => setMode("sell")}
-              className={cn(
-                "flex-1 py-2.5 px-4 rounded-xl text-sm font-bold transition-all",
-                mode === "sell"
-                  ? "bg-white text-rose-600 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700",
-              )}
-            >
-              Sell
-            </button>
-          </div>
-
-          {isAddPurchaseFlow && allStocks.length > 0 && (
-            <div className="mb-8">
-              {mode === "buy" && aiIdeas.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-[10px] font-black text-teal-600 uppercase tracking-widest mb-2">
-                    AI shortlist
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {aiIdeas.map((idea) => (
-                      <button
-                        key={`ai-${idea.symbol}`}
-                        onClick={() => {
-                          setSelectedSymbol(idea.symbol);
-                          setSymbolInput(idea.symbol);
-                        }}
-                        className="px-3 py-1.5 rounded-full border border-teal-200 bg-teal-50 text-teal-700 text-[10px] font-black uppercase tracking-widest hover:bg-teal-100 transition-colors"
-                      >
-                        {idea.symbol} ({Math.round(idea.confidence * 100)}%)
-                      </button>
-                    ))}
-                  </div>
+        {isAddPurchaseFlow && allStocks.length > 0 && (
+          <div className="mb-8">
+            {mode === "buy" && aiIdeas.length > 0 && (
+              <div className="mb-4">
+                <p className="text-[10px] font-black text-teal-600 uppercase tracking-widest mb-2">
+                  AI shortlist
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {aiIdeas.map((idea) => (
+                    <button
+                      key={`ai-${idea.symbol}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSymbol(idea.symbol);
+                        setSymbolInput(idea.symbol);
+                      }}
+                      className="px-3 py-1.5 rounded-full border border-teal-200 bg-teal-50 text-teal-700 text-[10px] font-black uppercase tracking-widest hover:bg-teal-100 transition-colors"
+                    >
+                      {idea.symbol} ({Math.round(idea.confidence * 100)}%)
+                    </button>
+                  ))}
                 </div>
-              )}
-
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Enter Ticker
-              </label>
-              <div className="mb-4 flex gap-2">
-                <input
-                  value={symbolInput}
-                  onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. AMD"
-                  className="flex-1 rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm font-bold py-3 px-4 uppercase"
-                />
-                <button
-                  onClick={handleLookup}
-                  disabled={isLookingUp}
-                  className="px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors disabled:opacity-60"
-                >
-                  {isLookingUp ? "..." : "Lookup"}
-                </button>
               </div>
-              {lookupError && (
-                <p className="mb-3 text-xs font-medium text-rose-600">{lookupError}</p>
-              )}
+            )}
 
-              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Select Stock
-              </label>
-              <select
-                value={displayStock?.symbol ?? selectedSymbol ?? allStocks[0]?.symbol}
-                onChange={(e) => setSelectedSymbol(e.target.value)}
-                className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-sm font-bold py-4 px-6"
+            <label
+              htmlFor={tickerInputId}
+              className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2"
+            >
+              Enter Ticker
+            </label>
+            <div className="mb-4 flex flex-col sm:flex-row gap-2">
+              <input
+                id={tickerInputId}
+                value={symbolInput}
+                onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
+                placeholder="e.g. AMD"
+                autoComplete="off"
+                className="flex-1 rounded-2xl border border-slate-200 shadow-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-300 text-sm font-bold py-3 px-4 uppercase dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              />
+              <button
+                type="button"
+                onClick={handleLookup}
+                disabled={isLookingUp}
+                className="px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors disabled:opacity-60"
               >
-                {Array.from(stocksBySymbol.values()).map((stock) => (
-                  <option key={stock.symbol} value={stock.symbol}>
-                    {stock.symbol} - {stock.name}
-                    {Number(stock.price) > 0 ? ` ($${Number(stock.price).toFixed(2)})` : ""}
-                  </option>
-                ))}
-              </select>
+                {isLookingUp ? "..." : "Lookup"}
+              </button>
             </div>
-          )}
+            {lookupError ? (
+              <p className="mb-3 text-xs font-medium text-rose-600" role="alert">
+                {lookupError}
+              </p>
+            ) : null}
 
-          {displayStock && (
-            <>
-              <div className="mb-8 flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-teal-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl">
-                    {displayStock.symbol}
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-slate-900">
-                      {displayStock.name}
-                    </h3>
-                    <p className="text-sm font-medium text-slate-500">
-                      ${Number(price).toFixed(2)}
-                    </p>
-                  </div>
+            <label
+              htmlFor={stockSelectId}
+              className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2"
+            >
+              Select Stock
+            </label>
+            <select
+              id={stockSelectId}
+              value={displayStock?.symbol ?? selectedSymbol ?? allStocks[0]?.symbol}
+              onChange={(e) => setSelectedSymbol(e.target.value)}
+              className="block w-full rounded-2xl border border-slate-200 shadow-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-300 text-sm font-bold py-4 px-6 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              {Array.from(stocksBySymbol.values()).map((stock) => (
+                <option key={stock.symbol} value={stock.symbol}>
+                  {stock.symbol} - {stock.name}
+                  {Number(stock.price) > 0 ? ` ($${Number(stock.price).toFixed(2)})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {displayStock ? (
+          <>
+            <div className="mb-8 flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100 dark:bg-slate-800 dark:border-slate-700">
+              <div className="flex items-center gap-4 min-w-0">
+                <div
+                  className="w-14 h-14 shrink-0 bg-teal-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl"
+                  aria-hidden="true"
+                >
+                  {displayStock.symbol}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-extrabold text-slate-900 dark:text-slate-100 truncate">
+                    {displayStock.name}
+                  </h3>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                    ${Number(price).toFixed(2)}
+                  </p>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-6">
-                {mode === "buy" && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                      Price Per Share
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={customPrice}
-                        onChange={(e) => setCustomPrice(e.target.value)}
-                        className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-xl font-bold py-3 pl-12 pr-6 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </div>
-                )}
-
+            <div className="space-y-6">
+              {mode === "buy" ? (
                 <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Number of Shares
+                  <label
+                    htmlFor={priceInputId}
+                    className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2"
+                  >
+                    Price Per Share
                   </label>
                   <div className="relative">
+                    <span
+                      className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl"
+                      aria-hidden="true"
+                    >
+                      $
+                    </span>
                     <input
+                      id={priceInputId}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={shares}
-                      onChange={(e) => setShares(e.target.value)}
-                      className="block w-full rounded-2xl border-slate-200 shadow-sm focus:border-teal-500 focus:ring-teal-500 text-2xl font-bold py-4 pl-6 pr-32 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      placeholder="0"
+                      inputMode="decimal"
+                      value={customPrice}
+                      onChange={(e) => setCustomPrice(e.target.value)}
+                      className="block w-full rounded-2xl border border-slate-200 shadow-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-300 text-xl font-bold py-3 pl-12 pr-6 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      placeholder="0.00"
                     />
-                    <div className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm tracking-widest">
-                      SHARES
-                    </div>
                   </div>
                 </div>
+              ) : null}
 
-                <div className="flex justify-between items-center text-sm px-1">
-                  <div>
-                    <span className="text-slate-500 font-medium">
-                      {mode === "buy" ? "Available Cash:" : "Available Shares:"}
-                    </span>
-                    <span className="font-bold text-slate-900 ml-2">
-                      {mode === "buy"
-                        ? `$${formatCurrency(spendableCash)}`
-                        : `${owned.toFixed(2)} ${displayStock.symbol}`}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-slate-500 font-medium">Est. Total:</span>
-                    <span className="font-black text-slate-900 ml-2">
-                      ${formatCurrency(estimatedTotalWithFee)}
-                    </span>
-                  </div>
-                </div>
-                {mode === "buy" && (
-                  <p className="text-[11px] font-medium text-slate-500">
-                    Includes ${formatCurrency(TRANSACTION_FEE_USD)} transaction fee.
-                  </p>
-                )}
-
-                {mode === "sell" && owned <= 0 && (
-                  <p className="text-sm font-medium text-rose-600">
-                    You do not currently own this stock, so there are no shares to sell.
-                  </p>
-                )}
-                {mode === "buy" && insufficientCash && (
-                  <p className="text-sm font-medium text-rose-600">
-                    This order would breach your reserve floor.
-                  </p>
-                )}
-                {mode === "buy" && missingPrice && (
-                  <p className="text-sm font-medium text-rose-600">
-                    Enter a valid price, or use Lookup to fetch one.
-                  </p>
-                )}
-                {mode === "sell" && insufficientShares && owned > 0 && (
-                  <p className="text-sm font-medium text-rose-600">
-                    You cannot sell more shares than you currently own.
-                  </p>
-                )}
-                {manualTradingDisabled && (
-                  <p className="text-sm font-medium text-amber-700">
-                    Autonomous mode is active. Manual order placement is currently disabled.
-                  </p>
-                )}
-
-                <button
-                  onClick={handlePlaceOrder}
-                  disabled={disablePlaceOrder}
-                  className={cn(
-                    "w-full py-5 text-white font-black rounded-2xl shadow-lg transition-all transform active:scale-[0.98] text-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
-                    mode === "buy"
-                      ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
-                      : "bg-rose-600 hover:bg-rose-700 shadow-rose-200",
-                  )}
+              <div>
+                <label
+                  htmlFor={sharesInputId}
+                  className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2"
                 >
-                  Place {mode === "buy" ? "Buy" : "Sell"} Order
-                </button>
+                  Number of Shares
+                </label>
+                <div className="relative">
+                  <input
+                    id={sharesInputId}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={shares}
+                    onChange={(e) => setShares(e.target.value)}
+                    className="block w-full rounded-2xl border border-slate-200 shadow-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-300 text-2xl font-bold py-4 pl-6 pr-32 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    placeholder="0"
+                  />
+                  <div
+                    className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm tracking-widest pointer-events-none"
+                    aria-hidden="true"
+                  >
+                    SHARES
+                  </div>
+                </div>
               </div>
-            </>
-          )}
 
-          {isAddPurchaseFlow && allStocks.length === 0 && (
-            <p className="text-slate-500 text-sm font-medium text-center py-8">
-              No stocks are currently available for trading.
-            </p>
-          )}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-sm px-1">
+                <div>
+                  <span className="text-slate-500 font-medium">
+                    {mode === "buy" ? "Available Cash:" : "Available Shares:"}
+                  </span>
+                  <span className="font-bold text-slate-900 ml-2 dark:text-slate-100">
+                    {mode === "buy"
+                      ? `$${formatCurrency(spendableCash)}`
+                      : `${owned.toFixed(2)} ${displayStock.symbol}`}
+                  </span>
+                </div>
+                <div className="sm:text-right">
+                  <span className="text-slate-500 font-medium">Est. Total:</span>
+                  <span className="font-black text-slate-900 ml-2 dark:text-slate-100">
+                    ${formatCurrency(estimatedTotalWithFee)}
+                  </span>
+                </div>
+              </div>
+              {mode === "buy" ? (
+                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Includes ${formatCurrency(TRANSACTION_FEE_USD)} transaction fee.
+                </p>
+              ) : null}
 
-          <p className="text-center text-[10px] font-bold text-slate-400 mt-8 px-6 uppercase tracking-widest leading-relaxed">
-            Orders placed after market hours will be executed at the opening
-            price of the next trading day.
+              {mode === "sell" && owned <= 0 ? (
+                <p className="text-sm font-medium text-rose-600" role="alert">
+                  You do not currently own this stock, so there are no shares to sell.
+                </p>
+              ) : null}
+              {mode === "buy" && insufficientCash ? (
+                <p className="text-sm font-medium text-rose-600" role="alert">
+                  This order would breach your reserve floor.
+                </p>
+              ) : null}
+              {mode === "buy" && missingPrice ? (
+                <p className="text-sm font-medium text-rose-600" role="alert">
+                  Enter a valid price, or use Lookup to fetch one.
+                </p>
+              ) : null}
+              {mode === "sell" && insufficientShares && owned > 0 ? (
+                <p className="text-sm font-medium text-rose-600" role="alert">
+                  You cannot sell more shares than you currently own.
+                </p>
+              ) : null}
+              {manualTradingDisabled ? (
+                <p className="text-sm font-medium text-amber-700" role="status">
+                  Autonomous mode is active. Manual order placement is currently disabled.
+                </p>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={handlePlaceOrder}
+                disabled={disablePlaceOrder}
+                className={cn(
+                  "w-full py-5 text-white font-black rounded-2xl shadow-lg transition-all transform active:scale-[0.98] text-lg disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
+                  mode === "buy"
+                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+                    : "bg-rose-600 hover:bg-rose-700 shadow-rose-200",
+                )}
+              >
+                Place {mode === "buy" ? "Buy" : "Sell"} Order
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        {isAddPurchaseFlow && allStocks.length === 0 ? (
+          <p className="text-slate-500 text-sm font-medium text-center py-8">
+            No stocks are currently available for trading.
           </p>
-        </div>
-      </motion.div>
-    </motion.div>
+        ) : null}
+
+        <p className="text-center text-[10px] font-bold text-slate-400 mt-8 px-6 uppercase tracking-widest leading-relaxed">
+          Orders placed after market hours will be executed at the opening price of the next
+          trading day.
+        </p>
+      </div>
+    </ModalFrame>
   );
 };

@@ -2,11 +2,40 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# InvestAI — AI-Powered Stock Trading Assistant
 
-This contains everything you need to run your app locally.
+A full-stack AI stock trading assistant built with React 19 + FastAPI, powered by the OpenAI Agents SDK.
 
-View your app in AI Studio: https://ai.studio/apps/3a903b97-ee2b-4e83-b710-e94ce163a3d3
+## Features
+
+- **Three trading modes:** Manual, Assisted Agent (AI suggestions), and Autonomous Agent (AI-driven loop)
+- **AI recommendations:** Multi-agent pipeline generates stock picks with thesis, risk rating, and confidence scores
+- **Morning briefings:** Daily AI-generated portfolio briefings with cash deployment options and risk flags
+- **Real-time portfolio tracking:** InstantDB-backed portfolio persistence with intraday pricing refresh
+- **Risk metrics:** Sharpe ratio, drawdown analysis, sector concentration, and position sizing guidance
+- **Market research:** AI sector analysis and macro news summaries via the research agent
+
+## Architecture
+
+```
+┌─────────────────────────────────┐      ┌───────────────────────────────────┐
+│   React 19 + Vite (Vercel)      │      │   FastAPI (Docker / Railway)       │
+│                                 │      │                                   │
+│  Redux store                    │ HTTP │  /recommendations  ──► Advisor    │
+│  ├── portfolioReducer           │◄────►│  /research         ──► Research   │
+│  ├── tradeReducer               │      │  /briefings/latest ──► Briefing   │
+│  └── settingsReducer            │      │                                   │
+│                                 │      │  OpenAI Agents SDK                │
+│  Custom hooks                   │      │  ├── FinancialAdvisorAgent         │
+│  ├── usePortfolioSync (InstDB)  │      │  └── ResearchAgent                │
+│  ├── useBriefing                │      │                                   │
+│  ├── useAutonomousTrading       │      │  Pipeline modules                 │
+│  └── useMarketRefresh           │      │  ├── orchestrator.py              │
+│                                 │      │  ├── briefing_logic.py            │
+│  InstantDB (client persistence) │      │  ├── recommendation_runner.py     │
+└─────────────────────────────────┘      │  └── persistence.py               │
+                                         └───────────────────────────────────┘
+```
 
 ## Run Locally
 

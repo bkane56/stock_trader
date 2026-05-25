@@ -4,8 +4,8 @@ import { cn } from "../lib/utils";
 
 export function MobileNav({ items }) {
   return (
-    <div className="md:hidden pb-4">
-      <div className="flex items-center gap-2 overflow-x-auto">
+    <nav className="md:hidden pb-4" aria-label="Primary">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
         {items.map((item) => (
           <NavLink
             key={item.to}
@@ -25,6 +25,6 @@ export function MobileNav({ items }) {
           </NavLink>
         ))}
       </div>
-    </div>
+    </nav>
   );
 }

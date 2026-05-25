@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 
 export function InstantMagicCodeLogin({ db, authError }) {
+  const emailInputId = useId();
+  const codeInputId = useId();
   const [email, setEmail] = useState("");
   const [sentEmail, setSentEmail] = useState("");
   const [code, setCode] = useState("");
@@ -52,28 +54,39 @@ export function InstantMagicCodeLogin({ db, authError }) {
         </p>
 
         {authError ? (
-          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+          <p
+            className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700"
+            role="alert"
+          >
             {authError.message}
           </p>
         ) : null}
         {errorMessage ? (
-          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+          <p
+            className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700"
+            role="alert"
+          >
             {errorMessage}
           </p>
         ) : null}
 
         {!sentEmail ? (
           <form className="mt-8 space-y-4" onSubmit={sendCode}>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">
+            <label
+              htmlFor={emailInputId}
+              className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300"
+            >
               Email
             </label>
             <input
+              id={emailInputId}
               value={email}
               type="email"
               required
+              autoComplete="email"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:ring-2 focus:ring-teal-300 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
               disabled={isSubmitting}
@@ -88,16 +101,22 @@ export function InstantMagicCodeLogin({ db, authError }) {
             <p className="rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 text-xs font-bold text-teal-800">
               Enter the code sent to {sentEmail}.
             </p>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">
+            <label
+              htmlFor={codeInputId}
+              className="block text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300"
+            >
               Verification Code
             </label>
             <input
+              id={codeInputId}
               value={code}
               type="text"
               required
+              autoComplete="one-time-code"
+              inputMode="numeric"
               onChange={(e) => setCode(e.target.value)}
               placeholder="123456"
-              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              className="w-full rounded-2xl border border-slate-200 px-4 py-4 text-sm font-medium text-slate-700 focus:border-teal-500 focus:ring-2 focus:ring-teal-300 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             <button
               disabled={isSubmitting}

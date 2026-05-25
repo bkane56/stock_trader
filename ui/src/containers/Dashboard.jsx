@@ -106,7 +106,7 @@ export function Dashboard({
       className="space-y-10"
     >
       <header>
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight dark:text-slate-100">
           {getGreeting()}, {user?.firstName || "Investor"}.
         </h1>
         <p className="text-slate-500 font-medium mt-2 flex items-center gap-2">
@@ -153,9 +153,9 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(totalValue)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
               <ArrowUpRight size={16} />
               {activeHoldings.length} active positions
@@ -173,9 +173,9 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(investedAmount)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-slate-400 mb-1">
               Historical cost basis
             </p>
@@ -199,14 +199,15 @@ export function Dashboard({
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter">
+            <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tighter dark:text-slate-100">
               ${formatCurrency(cash)}
-            </h3>
+            </p>
             <p className="text-sm font-bold text-slate-400">
               Ready for deployment
             </p>
             <div className="grid grid-cols-2 gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => openCashModal("deposit")}
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
               >
@@ -214,6 +215,7 @@ export function Dashboard({
                 Add Cash
               </button>
               <button
+                type="button"
                 onClick={() => openCashModal("withdraw")}
                 className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:bg-rose-100 transition-colors flex items-center justify-center gap-1.5"
               >
@@ -233,9 +235,9 @@ export function Dashboard({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Holdings Snapshot */}
         <GlassCard className="lg:col-span-2 p-8">
-          <div className="flex items-center justify-between mb-10">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-10">
             <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight dark:text-slate-100">
                 Holdings Snapshot
               </h2>
               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">
@@ -243,8 +245,9 @@ export function Dashboard({
               </p>
             </div>
             <button
+              type="button"
               onClick={goToPortfolio}
-              className="px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+              className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 dark:shadow-slate-900"
             >
               View Portfolio
             </button>
@@ -252,7 +255,7 @@ export function Dashboard({
 
           {topHoldings.length ? (
             <div className="rounded-2xl border border-slate-100 overflow-hidden">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[32rem] text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/60">
                     <th className="px-5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -652,6 +655,7 @@ export function Dashboard({
             </span>
           </h2>
           <button
+            type="button"
             onClick={toggleShowAllTransactions}
             className="text-xs font-bold text-teal-600 hover:text-teal-700 transition-colors"
           >
@@ -659,7 +663,7 @@ export function Dashboard({
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[40rem] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
                 <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">

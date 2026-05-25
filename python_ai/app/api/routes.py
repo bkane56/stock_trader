@@ -1,3 +1,8 @@
+"""FastAPI route definitions for the AI recommendation service.
+
+All endpoints are mounted under the prefix configured in ``main.py``.
+"""
+
 from typing import Any
 from datetime import datetime, timezone
 
@@ -38,10 +43,12 @@ _TRADING_MODE_PATTERN = "^(manual_user|assisted_agent|autonomous_agent)$"
 
 
 def _parse_symbols_csv(raw: str) -> list[str]:
+    """Split a comma-separated ticker string into a list of non-empty symbols."""
     return [symbol.strip() for symbol in raw.split(",") if symbol.strip()]
 
 
 def _is_autonomous_mode(trading_mode: str) -> bool:
+    """Return True when the caller has selected the autonomous agent trading mode."""
     return str(trading_mode).strip() == "autonomous_agent"
 
 
@@ -125,16 +132,19 @@ def _fetch_quote_previous_close(symbol: str) -> dict[str, Any]:
 
 @router.get("/health")
 def health_check() -> dict[str, str]:
+    """Liveness probe — returns ``{"status": "ok"}`` when the service is up."""
     return {"status": "ok"}
 
 
 @router.get("/health/details")
 def health_details() -> dict[str, Any]:
+    """Readiness probe with provider, model, and last-run metadata."""
     return runtime_health_details()
 
 
 @router.get("/pipeline/runs/latest")
 def get_latest_pipeline_run() -> dict[str, str | int]:
+    """Return a summary of the most recent pipeline execution."""
     return latest_pipeline_run_summary()
 
 
@@ -150,6 +160,7 @@ def get_recommendations(
         ),
     ),
 ) -> RecommendationListResponse:
+    """Generate AI stock recommendations for the given watchlist."""
     symbols = _parse_symbols_csv(watchlist)
     autonomous_mode = _is_autonomous_mode(trading_mode)
     recommendations = generate_initial_recommendations(
@@ -175,12 +186,14 @@ def get_quote(
         ),
     ),
 ) -> dict[str, Any]:
+    """Return the previous-session close price for *symbol* via Polygon."""
     _ = price_mode  # Accepted for API compatibility; both modes map to Polygon /prev only.
     return _fetch_quote_previous_close(symbol)
 
 
 @router.post("/quotes/holdings/intraday", response_model=HoldingsIntradayResponse)
 def post_holdings_intraday_prices(payload: HoldingsIntradayRequest) -> HoldingsIntradayResponse:
+    """Fetch intraday prices for a list of holdings via web-search enrichment."""
     rows = fetch_holdings_prices_via_web_search(list(payload.symbols))
     quotes = [HoldingsIntradayQuote(**row) for row in rows]
     return HoldingsIntradayResponse(quotes=quotes)
@@ -198,6 +211,7 @@ def get_market_research(
         ),
     ),
 ) -> MarketResearchResponse:
+    """Run the AI research agent and return sector/holding analysis."""
     symbols = _parse_symbols_csv(holdings)
     autonomous_mode = _is_autonomous_mode(trading_mode)
     return generate_market_research(
@@ -209,6 +223,7 @@ def get_market_research(
 
 @router.get("/briefings/latest", response_model=MorningBriefingResponse)
 def get_latest_morning_briefing() -> MorningBriefingResponse:
+    """Return the most recently persisted morning briefing, or generate a default one."""
     settings = get_settings()
     default_symbols = _parse_symbols_csv(settings.MORNING_BRIEFING_DEFAULT_HOLDINGS)
     latest = latest_persisted_morning_briefing()
@@ -229,6 +244,11 @@ def get_latest_morning_briefing() -> MorningBriefingResponse:
 def generate_morning_briefing_endpoint(
     payload: MorningBriefingGenerateRequest,
 ) -> MorningBriefingResponse:
+    """Generate a full morning briefing from the caller's portfolio snapshot.
+
+    Blocks autonomous-mode calls outside US equity market hours.
+    Set ``persist=true`` to write the result to disk for ``/briefings/latest``.
+    """
     if (
         payload.trading_mode == "autonomous_agent"
         and not is_us_equity_trading_hours_eastern()

@@ -32,12 +32,14 @@ class Settings(BaseSettings):
     AI_SKILLS_PROMPT_LIMIT: int = 15
     RESEARCH_MIN_BUY_CONFIDENCE: float = 0.51
     OPENAI_MODEL: str = ""
+    # Reserved: Anthropic provider not yet implemented — field kept for future integration.
     ANTHROPIC_MODEL: str = ""
 
     POLYGON_API_KEY: str = ""
     POLYGON_PLAN: str = "free"
     POLYGON_REALTIME: bool = False
     OPENAI_API_KEY: str = ""
+    # Reserved: Anthropic provider not yet implemented — field kept for future integration.
     ANTHROPIC_API_KEY: str = ""
     SERPER_API_KEY: str = ""
     BRAVE_API_KEY: str = ""
