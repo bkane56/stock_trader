@@ -9,6 +9,7 @@ from app.pipeline.orchestrator import (
     latest_mcp_runtime_debug,
     latest_pipeline_run_summary,
     latest_recommendation_tools_used,
+    latest_runtime_status,
     runtime_health_details,
 )
 from app.pipeline.persistence import (

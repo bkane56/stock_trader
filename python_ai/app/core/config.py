@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "Stock Trader AI Service"
     APP_ENV: str = "development"
     APP_LOG_LEVEL: str = "INFO"
+    # When set, expensive AI endpoints require X-API-Key. Leave empty for local dev.
+    API_SECRET_KEY: str = ""
     CORS_ALLOW_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     # Optional regex for origins not listed above (e.g. all Vercel preview URLs).
     # Example: https://.*\.vercel\.app — use only if you accept that tradeoff.

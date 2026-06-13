@@ -6,13 +6,15 @@ All endpoints are mounted under the prefix configured in ``main.py``.
 from typing import Any
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.auth import require_api_key
 from app.core.config import get_settings
 from app.core.market_hours import (
     US_EQUITY_MARKET_HOURS_LABEL,
     is_us_equity_trading_hours_eastern,
 )
+from app.pipeline.briefing_logic import normalize_symbols
 from app.pipeline.holdings_intraday import fetch_holdings_prices_via_web_search
 from app.pipeline.service import (
     generate_and_persist_morning_briefing,
@@ -22,6 +24,7 @@ from app.pipeline.service import (
     latest_persisted_morning_briefing,
     latest_recommendation_tools_used,
     latest_pipeline_run_summary,
+    latest_runtime_status,
     runtime_health_details,
 )
 from app.schemas.holdings_quotes import (
@@ -35,6 +38,8 @@ from app.schemas.recommendations import (
     MorningBriefingGenerateRequest,
     MorningBriefingResponse,
     RecommendationListResponse,
+    RecommendationsRequest,
+    ResearchRequest,
 )
 from app.services.decision_ledger import list_decisions
 from app.services.market_data.base import ProviderError, quote_to_api_dict
@@ -44,7 +49,6 @@ from app.services.market_data.factory import (
 )
 
 router = APIRouter()
-_TRADING_MODE_PATTERN = "^(manual_user|assisted_agent|autonomous_agent)$"
 
 
 def _parse_symbols_csv(raw: str) -> list[str]:
@@ -113,30 +117,43 @@ def get_latest_pipeline_run() -> dict[str, str | int]:
     return latest_pipeline_run_summary()
 
 
-@router.get("/recommendations", response_model=RecommendationListResponse)
-def get_recommendations(
-    watchlist: str = Query(default="SPY,QQQ"),
-    trading_mode: str = Query(
-        default="manual_user",
-        pattern=_TRADING_MODE_PATTERN,
-        description=(
-            "When autonomous_agent, day-trader system prompts are used for the "
-            "advisor and research agents."
-        ),
-    ),
-) -> RecommendationListResponse:
+@router.post(
+    "/recommendations",
+    response_model=RecommendationListResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def post_recommendations(payload: RecommendationsRequest) -> RecommendationListResponse:
     """Generate AI stock recommendations for the given watchlist."""
-    symbols = _parse_symbols_csv(watchlist)
-    autonomous_mode = _is_autonomous_mode(trading_mode)
+    symbols = normalize_symbols(payload.watchlist)
+    autonomous_mode = _is_autonomous_mode(payload.trading_mode)
     recommendations = generate_initial_recommendations(
         symbols=symbols,
         autonomous_mode=autonomous_mode,
     )
+    runtime = latest_runtime_status()
     return RecommendationListResponse(
         recommendations=recommendations,
         tools_used=latest_recommendation_tools_used(),
         generated_at=datetime.now(timezone.utc),
+        **runtime,
     )
+
+
+@router.post(
+    "/research",
+    response_model=MarketResearchResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def post_market_research(payload: ResearchRequest) -> MarketResearchResponse:
+    """Run the AI research agent and return sector/holding analysis."""
+    symbols = normalize_symbols(payload.holdings)
+    autonomous_mode = _is_autonomous_mode(payload.trading_mode)
+    research = generate_market_research(
+        holdings=symbols,
+        focus=payload.focus,
+        autonomous_mode=autonomous_mode,
+    )
+    return research.model_copy(update=latest_runtime_status())
 
 
 @router.get("/quotes/{symbol}")
@@ -164,28 +181,6 @@ def post_holdings_intraday_prices(payload: HoldingsIntradayRequest) -> HoldingsI
     return HoldingsIntradayResponse(quotes=quotes)
 
 
-@router.get("/research", response_model=MarketResearchResponse)
-def get_market_research(
-    holdings: str = Query(default="SPY,QQQ,AAPL"),
-    focus: str = Query(default=""),
-    trading_mode: str = Query(
-        default="manual_user",
-        pattern=_TRADING_MODE_PATTERN,
-        description=(
-            "When autonomous_agent, day-trader system prompts are used for the research agent."
-        ),
-    ),
-) -> MarketResearchResponse:
-    """Run the AI research agent and return sector/holding analysis."""
-    symbols = _parse_symbols_csv(holdings)
-    autonomous_mode = _is_autonomous_mode(trading_mode)
-    return generate_market_research(
-        holdings=symbols,
-        focus=focus,
-        autonomous_mode=autonomous_mode,
-    )
-
-
 @router.get("/briefings/latest", response_model=MorningBriefingResponse)
 def get_latest_morning_briefing() -> MorningBriefingResponse:
     """Return the most recently persisted morning briefing, or generate a default one."""
@@ -205,7 +200,11 @@ def get_latest_morning_briefing() -> MorningBriefingResponse:
     )
 
 
-@router.post("/briefings/generate", response_model=MorningBriefingResponse)
+@router.post(
+    "/briefings/generate",
+    response_model=MorningBriefingResponse,
+    dependencies=[Depends(require_api_key)],
+)
 def generate_morning_briefing_endpoint(
     payload: MorningBriefingGenerateRequest,
 ) -> MorningBriefingResponse:

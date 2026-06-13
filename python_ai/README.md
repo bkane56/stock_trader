@@ -84,9 +84,9 @@ CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
 - Run API locally:
   - `cd /Users/briankane/dev/antigravity/stock_trader/python_ai && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010`
 - Request recommendations:
-  - `curl "http://127.0.0.1:8010/recommendations?watchlist=SPY,QQQ,AAPL"`
+  - `curl -X POST http://127.0.0.1:8010/recommendations -H 'Content-Type: application/json' -d '{"watchlist":["SPY","QQQ","AAPL"]}'`
 - Request market research:
-  - `curl "http://127.0.0.1:8010/research?holdings=SPY,QQQ,AAPL&focus=technology"`
+  - `curl -X POST http://127.0.0.1:8010/research -H 'Content-Type: application/json' -d '{"holdings":["SPY","QQQ","AAPL"],"focus":"technology"}'`
 - Check runtime health details (mode + fallback reason):
   - `curl "http://127.0.0.1:8010/health/details"`
 - Run one pipeline cycle:

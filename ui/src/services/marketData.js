@@ -3,18 +3,12 @@
  * Includes a localStorage cache for previous-close prices to avoid redundant requests.
  */
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8010";
+import { fetchPythonAiJson, getPythonAiBaseUrl } from "./apiClient";
+
+export { getPythonAiBaseUrl };
+
 const QUOTE_CLOSE_CACHE_PREFIX = "investai.quoteClose";
-
-function apiBaseUrl() {
-  const raw = import.meta.env.VITE_PYTHON_AI_BASE_URL || DEFAULT_API_BASE_URL;
-  return raw.replace(/\/$/, "");
-}
-
-/** Returns the base URL for the Python AI API (used by quotes, briefings, holdings refresh). */
-export function getPythonAiBaseUrl() {
-  return apiBaseUrl();
-}
+const QUOTE_FETCH_MS = 15000;
 
 /** Max ms to wait for an intraday batch quote before aborting (prevents stuck loading states). */
 const HOLDINGS_INTRADAY_FETCH_MS = 35000;
@@ -34,29 +28,17 @@ export async function fetchHoldingsIntradayQuotes(symbols) {
   if (!uniq.length) return [];
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), HOLDINGS_INTRADAY_FETCH_MS);
-  let response;
   try {
-    response = await fetch(`${getPythonAiBaseUrl()}/quotes/holdings/intraday`, {
+    const data = await fetchPythonAiJson("/quotes/holdings/intraday", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbols: uniq }),
       signal: controller.signal,
     });
+    return Array.isArray(data.quotes) ? data.quotes : [];
   } finally {
     clearTimeout(timeoutId);
   }
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const payload = await response.json();
-      detail = String(payload?.detail || "").trim();
-    } catch (_error) {
-      detail = "";
-    }
-    throw new Error(detail || `Unable to refresh holdings quotes (${response.status}).`);
-  }
-  const data = await response.json();
-  return Array.isArray(data.quotes) ? data.quotes : [];
 }
 
 /** Returns a date string (YYYY-MM-DD) representing today, used as a cache key suffix. */
@@ -141,7 +123,7 @@ export async function fetchSymbolQuote(symbol, options = {}) {
     priceMode = "previous_close";
   }
   const priceModeParam = priceMode === "previous_close" ? "previous_close" : "live";
-  const quoteUrl = `${apiBaseUrl()}/quotes/${encodeURIComponent(normalized)}?price_mode=${encodeURIComponent(
+  const quotePath = `/quotes/${encodeURIComponent(normalized)}?price_mode=${encodeURIComponent(
     priceModeParam,
   )}`;
 
@@ -152,20 +134,14 @@ export async function fetchSymbolQuote(symbol, options = {}) {
     }
   }
 
-  const response = await fetch(quoteUrl);
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const payload = await response.json();
-      detail = String(payload?.detail || "").trim();
-    } catch (_error) {
-      detail = "";
-    }
-    throw new Error(
-      detail || `Unable to fetch quote for ${normalized} (${response.status}).`
-    );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), QUOTE_FETCH_MS);
+  let quote;
+  try {
+    quote = await fetchPythonAiJson(quotePath, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
   }
-  const quote = await response.json();
   writeCachedClose(quote);
 
   if (pricingProfile === "basic") {

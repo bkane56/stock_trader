@@ -1,25 +1,15 @@
 /**
  * Client for the Python AI briefing endpoints.
- * All functions throw on non-2xx responses.
  */
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8010";
-
-function apiBaseUrl() {
-  const raw = import.meta.env.VITE_PYTHON_AI_BASE_URL || DEFAULT_API_BASE_URL;
-  return raw.replace(/\/$/, "");
-}
+import { fetchPythonAiJson } from "./apiClient";
 
 /**
  * Fetches the most recently persisted morning briefing from the API.
  * @returns {Promise<object>} Raw briefing JSON from the server.
  */
 export async function fetchLatestMorningBriefing() {
-  const response = await fetch(`${apiBaseUrl()}/briefings/latest`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch morning briefing (${response.status})`);
-  }
-  return response.json();
+  return fetchPythonAiJson("/briefings/latest");
 }
 
 /**
@@ -54,7 +44,7 @@ export async function generateMorningBriefing({
         .filter(Boolean)
     )
   );
-  const response = await fetch(`${apiBaseUrl()}/briefings/generate`, {
+  return fetchPythonAiJson("/briefings/generate", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -78,8 +68,4 @@ export async function generateMorningBriefing({
       force_refresh: Boolean(forceRefresh),
     }),
   });
-  if (!response.ok) {
-    throw new Error(`Failed to generate morning briefing (${response.status})`);
-  }
-  return response.json();
 }

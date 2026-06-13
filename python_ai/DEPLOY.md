@@ -42,11 +42,12 @@ Render free web services **spin down after ~15 minutes of inactivity**. The firs
    | `CORS_ALLOW_ORIGINS` | Vercel prod URL + `http://localhost:3000` |
    | `CORS_ALLOW_ORIGIN_REGEX` | `https://.*\.vercel\.app` for preview deploys |
    | `APP_ENV` | `production` |
+   | `API_SECRET_KEY` | Shared secret; required on `POST /recommendations`, `POST /research`, `POST /briefings/generate` |
 
    Copy optional vars from [`.env.example`](../.env.example) as needed.
 
 3. Render assigns a URL like `https://stock-trader-api.onrender.com`.
-4. In **Vercel**, set **`VITE_PYTHON_AI_BASE_URL`** to that URL (no trailing slash), then **redeploy** the frontend.
+4. In **Vercel**, set **`VITE_PYTHON_AI_BASE_URL`** to that URL (no trailing slash) and **`VITE_API_SECRET_KEY`** to the same value as `API_SECRET_KEY`, then **redeploy** the frontend.
 
 **CORS example** (production frontend at `https://stock-trader-wine.vercel.app`):
 
