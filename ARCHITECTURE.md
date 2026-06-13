@@ -160,12 +160,12 @@ Guardrails (autonomous / assisted): 10% cash reserve, 4–10 positions, max 2% f
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/health`, `/health/details` | Liveness + agent runtime status |
-| `GET` | `/recommendations` | One-shot recommendation list |
-| `GET` | `/research` | Market research only |
+| `POST` | `/recommendations` | One-shot recommendation list (requires `X-API-Key` when `API_SECRET_KEY` is set) |
+| `POST` | `/research` | Market research only (requires `X-API-Key` when `API_SECRET_KEY` is set) |
 | `GET` | `/quotes/{symbol}` | Previous close (Polygon) |
 | `POST` | `/quotes/holdings/intraday` | Batch intraday refresh |
 | `GET` | `/briefings/latest` | Last persisted briefing |
-| `POST` | `/briefings/generate` | Full morning briefing for portfolio |
+| `POST` | `/briefings/generate` | Full morning briefing for portfolio (requires `X-API-Key` when `API_SECRET_KEY` is set) |
 
 Interactive docs: `{API_BASE_URL}/docs` (FastAPI OpenAPI).
 

@@ -447,6 +447,7 @@ export function Dashboard({
                                 <div className="mt-2 flex items-center justify-between gap-2">
                                   <div className="flex gap-2">
                                     <button
+                                      type="button"
                                       onClick={() =>
                                         onRecommendationDecision?.({
                                           key: recKey,
@@ -459,6 +460,7 @@ export function Dashboard({
                                       Accept
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() =>
                                         onRecommendationDecision?.({
                                           key: recKey,
@@ -538,6 +540,7 @@ export function Dashboard({
                               <div className="mt-2 flex items-center justify-between gap-2">
                                 <div className="flex gap-2">
                                   <button
+                                    type="button"
                                     onClick={() =>
                                       onRecommendationDecision?.({
                                         key: recKey,
@@ -550,6 +553,7 @@ export function Dashboard({
                                     Accept
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={() =>
                                       onRecommendationDecision?.({
                                         key: recKey,
@@ -612,6 +616,7 @@ export function Dashboard({
                                   {String(recommendationOrderErrors?.[recKey] || "").trim()}
                                 </p>
                                 <button
+                                  type="button"
                                   onClick={() =>
                                     onRecommendationDecision?.({
                                       key: recKey,

@@ -85,6 +85,16 @@ def latest_recommendation_tools_used() -> list[str]:
         return list(_LAST_RECOMMENDATION_TOOLS_USED)
 
 
+def latest_runtime_status() -> dict[str, str]:
+    """Return the latest AI runtime mode and reason for API responses."""
+    with _RUNTIME_STATUS_LOCK:
+        mode = str(_RUNTIME_STATUS.get("mode", "not_started"))
+        reason = str(_RUNTIME_STATUS.get("reason", ""))
+    if mode not in {"live_openai", "fallback", "not_started"}:
+        mode = "fallback"
+    return {"ai_runtime_mode": mode, "ai_runtime_reason": reason}
+
+
 def _set_last_mcp_runtime_debug(payload: dict[str, Any]) -> None:
     with _RUNTIME_STATUS_LOCK:
         global _LAST_MCP_RUNTIME_DEBUG
@@ -288,6 +298,12 @@ def generate_market_research(
             "Falling back to scaffold research response: unsupported provider '%s'.",
             provider,
         )
+        _set_runtime_status(
+            mode="fallback",
+            reason=f"Unsupported AI provider '{provider}'.",
+            provider=provider,
+            model=research_agent.identity.model,
+        )
         return MarketResearchResponse(
             holdings_review=[
                 HoldingResearch(
@@ -307,6 +323,12 @@ def generate_market_research(
 
     if not api_key:
         logger.warning("Falling back to scaffold research response: OPENAI_API_KEY missing.")
+        _set_runtime_status(
+            mode="fallback",
+            reason="OPENAI_API_KEY is missing.",
+            provider=provider,
+            model=research_agent.identity.model,
+        )
         return MarketResearchResponse(
             holdings_review=[
                 HoldingResearch(
@@ -325,7 +347,7 @@ def generate_market_research(
         )
 
     try:
-        return run_openai_agents_research(
+        research = run_openai_agents_research(
             settings=settings,
             holdings=normalized_holdings,
             focus=focus,
@@ -336,6 +358,13 @@ def generate_market_research(
             autonomous_mode=autonomous_mode,
             set_mcp_debug_fn=_set_last_mcp_runtime_debug,
         )
+        _set_runtime_status(
+            mode="live_openai",
+            reason="Live OpenAI research run succeeded.",
+            provider=provider,
+            model=research_agent.identity.model,
+        )
+        return research
     except asyncio.CancelledError as exc:
         logger.exception(
             "Live OpenAI market research run cancelled. Returning fallback payload."
@@ -346,6 +375,12 @@ def generate_market_research(
             phase="failed",
             configured=runtime.debug_snapshot(),
             exc=exc,
+        )
+        _set_runtime_status(
+            mode="fallback",
+            reason=f"Live OpenAI research run cancelled: {exc}",
+            provider=provider,
+            model=research_agent.identity.model,
         )
         return MarketResearchResponse(
             holdings_review=[
@@ -371,6 +406,12 @@ def generate_market_research(
             phase="failed",
             configured=runtime.debug_snapshot(),
             exc=exc,
+        )
+        _set_runtime_status(
+            mode="fallback",
+            reason=f"Live OpenAI research run failed: {exc}",
+            provider=provider,
+            model=research_agent.identity.model,
         )
         return MarketResearchResponse(
             holdings_review=[

@@ -42,7 +42,7 @@ Candidate Universe → Candidate Scoring → Market Data Provider → Portfolio 
 | **Persistence** | InstantDB (auth, portfolios, positions, audit events) |
 | **Market data** | Alpaca IEX (preferred), Polygon previous close, mock provider for tests |
 | **Deploy** | Vercel (SPA) + Render free tier (API) |
-| **Quality** | Vitest, vitest-axe (WCAG 2.2), pytest (≥90% target) |
+| **Quality** | GitHub Actions CI, Vitest + vitest-axe (WCAG 2.2), pytest (≥80% backend coverage gate) |
 
 **Repository:** [github.com/bkane56/stock_trader](https://github.com/bkane56/stock_trader)  
 **Architecture deep-dive:** [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -263,7 +263,7 @@ CORS details: [python_ai/README.md](python_ai/README.md#cors-and-the-vercel-fron
 
 - **Structured AI outputs** — Pydantic schemas end-to-end; execution logic is deterministic, not prompt-dependent
 - **Market-hours awareness** — Autonomous trading gated on US equity session (frontend + backend)
-- **Accessibility** — Semantic landmarks, labeled controls, dialog focus traps, automated axe checks in CI path
+- **Accessibility** — Semantic landmarks, labeled controls, dialog focus traps, automated axe checks in GitHub Actions CI
 - **Resilient briefing** — Generate with fallback to last persisted briefing artifact
 - **Separation of concerns** — Agents recommend; guardrails and user mode decide execution
 

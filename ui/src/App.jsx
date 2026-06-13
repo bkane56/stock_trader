@@ -1120,8 +1120,8 @@ export default function App() {
       >
         {(syncError || isSyncing) && (
           <div
-            role="status"
-            aria-live="polite"
+            role={syncError ? "alert" : "status"}
+            aria-live={syncError ? "assertive" : "polite"}
             className={cn(
               "mb-6 rounded-2xl px-5 py-4",
               isSyncing

@@ -17,3 +17,4 @@ services:
         value: production
       - key: APP_LOG_LEVEL
         value: INFO
+      # Set API_SECRET_KEY in the Render dashboard and mirror it in Vercel as VITE_API_SECRET_KEY.

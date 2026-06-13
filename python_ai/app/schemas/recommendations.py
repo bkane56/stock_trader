@@ -42,9 +42,31 @@ class RecommendationDecision(BaseModel):
     executed: bool = False
 
 
+class RecommendationsRequest(BaseModel):
+    watchlist: list[str] = Field(default_factory=lambda: ["SPY", "QQQ"])
+    trading_mode: str = Field(
+        default="manual_user",
+        pattern="^(manual_user|assisted_agent|autonomous_agent)$",
+    )
+
+
+class ResearchRequest(BaseModel):
+    holdings: list[str] = Field(default_factory=lambda: ["SPY", "QQQ", "AAPL"])
+    focus: str = ""
+    trading_mode: str = Field(
+        default="manual_user",
+        pattern="^(manual_user|assisted_agent|autonomous_agent)$",
+    )
+
+
 class RecommendationListResponse(BaseModel):
     recommendations: list[Recommendation]
     tools_used: list[str] = Field(default_factory=list)
+    ai_runtime_mode: str = Field(
+        default="not_started",
+        pattern="^(live_openai|fallback|not_started)$",
+    )
+    ai_runtime_reason: str = ""
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -93,6 +115,11 @@ class MarketResearchResponse(BaseModel):
     top_3_buys: list[StockIdea]
     do_not_buy: list[DoNotBuyIdea]
     macro_summary: str
+    ai_runtime_mode: str = Field(
+        default="not_started",
+        pattern="^(live_openai|fallback|not_started)$",
+    )
+    ai_runtime_reason: str = ""
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

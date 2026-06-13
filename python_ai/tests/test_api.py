@@ -78,18 +78,65 @@ def test_recommendations_endpoint(monkeypatch) -> None:
         "generate_initial_recommendations",
         lambda symbols, *, autonomous_mode=False: fixed,
     )
-    response = client.get("/recommendations?watchlist=AAPL,MSFT")
+    monkeypatch.setattr(
+        api_routes,
+        "latest_runtime_status",
+        lambda: {
+            "ai_runtime_mode": "live_openai",
+            "ai_runtime_reason": "Live OpenAI recommendation run succeeded.",
+        },
+    )
+    response = client.post(
+        "/recommendations",
+        json={"watchlist": ["AAPL", "MSFT"], "trading_mode": "manual_user"},
+    )
     assert response.status_code == 200
     payload = response.json()
     assert "recommendations" in payload
     assert "tools_used" in payload
+    assert payload["ai_runtime_mode"] == "live_openai"
     assert isinstance(payload["tools_used"], list)
     assert len(payload["recommendations"]) == 2
     assert payload["recommendations"][0]["action"] == "hold"
 
 
+def test_recommendations_requires_api_key_when_configured(monkeypatch) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("API_SECRET_KEY", "test-secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        api_routes,
+        "generate_initial_recommendations",
+        lambda symbols, *, autonomous_mode=False: [],
+    )
+    try:
+        response = client.post(
+            "/recommendations",
+            json={"watchlist": ["AAPL"], "trading_mode": "manual_user"},
+        )
+        assert response.status_code == 401
+
+        response = client.post(
+            "/recommendations",
+            json={"watchlist": ["AAPL"], "trading_mode": "manual_user"},
+            headers={"X-API-Key": "test-secret"},
+        )
+        assert response.status_code == 200
+    finally:
+        monkeypatch.delenv("API_SECRET_KEY", raising=False)
+        get_settings.cache_clear()
+
+
 def test_research_endpoint() -> None:
-    response = client.get("/research?holdings=AAPL,MSFT&focus=technology")
+    response = client.post(
+        "/research",
+        json={
+            "holdings": ["AAPL", "MSFT"],
+            "focus": "technology",
+            "trading_mode": "manual_user",
+        },
+    )
     assert response.status_code == 200
     payload = response.json()
     assert "holdings_review" in payload
@@ -98,6 +145,7 @@ def test_research_endpoint() -> None:
     assert "top_3_buys" in payload
     assert "do_not_buy" in payload
     assert "macro_summary" in payload
+    assert payload["ai_runtime_mode"] in {"live_openai", "fallback", "not_started"}
 
 
 def test_latest_briefing_endpoint_returns_persisted_payload(monkeypatch) -> None:
