@@ -15,6 +15,7 @@ import { Badge } from "../components/Badge";
 import { TradingModeSelector } from "../components/TradingModeSelector";
 import { getTradingMode } from "../lib/tradingModes";
 import { formatCurrency } from "../lib/formatCurrency";
+import { getMarketDataDisclaimer } from "../lib/marketDataLabels";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -39,6 +40,7 @@ export function Dashboard({
   user,
   morningBriefing,
   isBriefingLoading,
+  briefingNotice,
   briefingError,
   openCashModal,
   tradingMode,
@@ -119,6 +121,13 @@ export function Dashboard({
           today.
         </p>
       </header>
+
+      <div
+        role="status"
+        className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+      >
+        {getMarketDataDisclaimer()}
+      </div>
 
       <GlassCard className="p-6">
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -316,6 +325,17 @@ export function Dashboard({
               </div>
             ) : null}
 
+            {briefingNotice ? (
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-sm font-black text-slate-900 mb-1">
+                  {briefingNotice.title}
+                </p>
+                <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                  {briefingNotice.body}
+                </p>
+              </div>
+            ) : null}
+
             {briefingError ? (
               <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100">
                 <p className="text-xs font-medium text-amber-700">
@@ -328,7 +348,7 @@ export function Dashboard({
               <>
                 <div className="p-5 rounded-2xl bg-teal-50 border border-teal-100">
                   <p className="text-sm font-black text-teal-900 mb-1">
-                    Market Context
+                    {briefingNotice ? "Things to watch at the open" : "Market Context"}
                   </p>
                   <p className="text-xs font-medium text-teal-700 leading-relaxed">
                     {morningBriefing.macro_news_summary}
@@ -336,6 +356,7 @@ export function Dashboard({
                   {generatedAt ? (
                     <p className="text-[10px] mt-2 font-bold text-teal-700 uppercase tracking-widest">
                       Generated {generatedAt}
+                      {morningBriefing.cache_hit ? " · Cached briefing" : ""}
                     </p>
                   ) : null}
                 </div>

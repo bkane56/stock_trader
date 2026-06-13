@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     POLYGON_API_KEY: str = ""
     POLYGON_PLAN: str = "free"
     POLYGON_REALTIME: bool = False
+    POLYGON_DATA_MODE: str = "previous_close"
+
+    MARKET_DATA_PROVIDER: str = "polygon"
+    MARKET_DATA_MODE: str = "free_iex"
+    MARKET_DATA_CACHE_MINUTES: int = 15
+    ENABLE_MARKET_DATA_FALLBACK: bool = True
+
+    ALPACA_API_KEY_ID: str = ""
+    ALPACA_API_SECRET_KEY: str = ""
+    ALPACA_DATA_FEED: str = "iex"
     OPENAI_API_KEY: str = ""
     # Reserved: Anthropic provider not yet implemented — field kept for future integration.
     ANTHROPIC_API_KEY: str = ""
@@ -47,6 +57,37 @@ class Settings(BaseSettings):
     PUSHOVER_USER: str = ""
     PUSHOVER_TOKEN: str = ""
     PUSHOVER_URL: str = "https://api.pushover.net/1/messages.json"
+
+    # Deterministic pipeline feature flag
+    USE_DETERMINISTIC_PIPELINE: bool = True
+
+    # Candidate universe extras (comma-separated tickers)
+    CANDIDATE_UNIVERSE_EXTRA: str = ""
+
+    # Risk rule thresholds
+    MAX_POSITION_WEIGHT_PCT: float = 30.0
+    TRIM_POSITION_WEIGHT_PCT: float = 25.0
+    TAKE_PROFIT_GAIN_PCT: float = 12.0
+    STOP_LOSS_PCT: float = -7.0
+    MIN_CASH_RESERVE_PCT: float = 5.0
+    MAX_TRADES_PER_DAY: int = 5
+    MAX_BUY_RECOMMENDATIONS_PER_RUN: int = 3
+
+    # Agent turn limits
+    RECOMMENDATION_MAX_TURNS: int = 6
+    RESEARCH_MAX_TURNS: int = 8
+
+    # AI budget policy
+    MAX_RESEARCH_RUNS_PER_DAY: int = 6
+    MIN_MINUTES_BETWEEN_RESEARCH_RUNS: int = 60
+    MAX_SYMBOLS_PER_RESEARCH_RUN: int = 12
+    MAX_LLM_CALLS_PER_RUN: int = 2
+    USE_CACHED_RESEARCH_IF_FRESH: bool = True
+
+    # Cache TTLs (seconds)
+    CANDIDATE_SCORE_CACHE_TTL_SEC: int = 1800
+    RESEARCH_SUMMARY_CACHE_TTL_SEC: int = 5400
+    RECOMMENDATION_CACHE_TTL_SEC: int = 1800
 
     def resolved_ai_provider(self) -> str:
         return (self.AI_PROVIDER or "openai").strip().lower()

@@ -6,7 +6,6 @@ All endpoints are mounted under the prefix configured in ``main.py``.
 from typing import Any
 from datetime import datetime, timezone
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.config import get_settings
@@ -30,15 +29,21 @@ from app.schemas.holdings_quotes import (
     HoldingsIntradayRequest,
     HoldingsIntradayResponse,
 )
+from app.schemas.decision_ledger import DecisionLedgerEntry
 from app.schemas.recommendations import (
     MarketResearchResponse,
     MorningBriefingGenerateRequest,
     MorningBriefingResponse,
     RecommendationListResponse,
 )
+from app.services.decision_ledger import list_decisions
+from app.services.market_data.base import ProviderError, quote_to_api_dict
+from app.services.market_data.factory import (
+    fetch_quote_sync,
+    market_data_status,
+)
 
 router = APIRouter()
-_QUOTE_CACHE: dict[str, dict[str, Any]] = {}
 _TRADING_MODE_PATTERN = "^(manual_user|assisted_agent|autonomous_agent)$"
 
 
@@ -52,82 +57,34 @@ def _is_autonomous_mode(trading_mode: str) -> bool:
     return str(trading_mode).strip() == "autonomous_agent"
 
 
-def _polygon_prev_close(normalized_symbol: str, polygon_api_key: str) -> float:
-    """Return previous session close from Polygon /prev; raises on hard failures."""
-    response = httpx.get(
-        f"https://api.polygon.io/v2/aggs/ticker/{normalized_symbol}/prev",
-        params={"adjusted": "true", "apiKey": polygon_api_key},
-        timeout=10.0,
-    )
-    response.raise_for_status()
-    response_payload = response.json()
-    results = response_payload.get("results", [])
-    if not isinstance(results, list) or not results:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Polygon did not return previous-close data for {normalized_symbol}.",
-        )
-    previous = results[0]
-    close = previous.get("c")
-    if not isinstance(close, (float, int)):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Polygon close price unavailable for {normalized_symbol}.",
-        )
-    return float(close)
-
-
-def _fetch_quote_previous_close(symbol: str) -> dict[str, Any]:
-    """Prior-day close for both price and previous_close (legacy / paper baseline)."""
+def _fetch_quote(symbol: str) -> dict[str, Any]:
+    """Return a quote from the configured market-data provider."""
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol:
-        raise ValueError("symbol is required")
-    settings = get_settings()
-    polygon_api_key = settings.POLYGON_API_KEY.strip()
-    if not polygon_api_key:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="POLYGON_API_KEY is missing for quote retrieval.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="symbol is required",
         )
 
     try:
-        close = _polygon_prev_close(normalized_symbol, polygon_api_key)
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code if exc.response is not None else None
-        if status_code == 429:
-            cached = _QUOTE_CACHE.get(normalized_symbol)
-            if cached:
-                return cached
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    f"Polygon rate-limited request for {normalized_symbol}. "
-                    "Please retry in a few seconds."
-                ),
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Polygon returned an error for {normalized_symbol}.",
-        ) from exc
-    except httpx.HTTPError:
-        cached = _QUOTE_CACHE.get(normalized_symbol)
-        if cached:
-            return cached
+        quote = fetch_quote_sync(normalized_symbol)
+    except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Unable to reach Polygon for {normalized_symbol}.",
-        )
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Unable to fetch quote for {normalized_symbol}.",
+        ) from exc
 
-    payload = {
-        "symbol": normalized_symbol,
-        "name": normalized_symbol,
-        "price": close,
-        "previous_close": close,
-        "currency": "USD",
-        "source": "polygon_prev_close",
-    }
-    _QUOTE_CACHE[normalized_symbol] = payload
-    return payload
+    return quote_to_api_dict(quote)
 
 
 @router.get("/health")
@@ -139,7 +96,15 @@ def health_check() -> dict[str, str]:
 @router.get("/health/details")
 def health_details() -> dict[str, Any]:
     """Readiness probe with provider, model, and last-run metadata."""
-    return runtime_health_details()
+    details = runtime_health_details()
+    details.update(market_data_status())
+    return details
+
+
+@router.get("/market-data/status")
+def get_market_data_status() -> dict[str, str | bool]:
+    """Return configured market-data provider and UI disclaimer metadata."""
+    return market_data_status()
 
 
 @router.get("/pipeline/runs/latest")
@@ -181,19 +146,19 @@ def get_quote(
         default="live",
         pattern="^(live|previous_close)$",
         description=(
-            "Polygon is previous session close only on many tiers. "
-            "Use POST /quotes/holdings/intraday for web-search-based marks on a refresh cadence."
+            "Quote mode is accepted for API compatibility. "
+            "Pricing comes from the configured MARKET_DATA_PROVIDER."
         ),
     ),
 ) -> dict[str, Any]:
-    """Return the previous-session close price for *symbol* via Polygon."""
-    _ = price_mode  # Accepted for API compatibility; both modes map to Polygon /prev only.
-    return _fetch_quote_previous_close(symbol)
+    """Return a quote for *symbol* from the configured market-data provider."""
+    _ = price_mode
+    return _fetch_quote(symbol)
 
 
 @router.post("/quotes/holdings/intraday", response_model=HoldingsIntradayResponse)
 def post_holdings_intraday_prices(payload: HoldingsIntradayRequest) -> HoldingsIntradayResponse:
-    """Fetch intraday prices for a list of holdings via web-search enrichment."""
+    """Fetch batch quotes for holdings via the configured market-data provider."""
     rows = fetch_holdings_prices_via_web_search(list(payload.symbols))
     quotes = [HoldingsIntradayQuote(**row) for row in rows]
     return HoldingsIntradayResponse(quotes=quotes)
@@ -269,6 +234,7 @@ def generate_morning_briefing_endpoint(
             strategy_fixed_pct=payload.strategy_fixed_pct,
             focus=payload.focus,
             trading_mode=payload.trading_mode,
+            force_refresh=payload.force_refresh,
         )
     return generate_morning_briefing(
         holdings=payload.holdings,
@@ -278,4 +244,21 @@ def generate_morning_briefing_endpoint(
         strategy_fixed_pct=payload.strategy_fixed_pct,
         focus=payload.focus,
         trading_mode=payload.trading_mode,
+        force_refresh=payload.force_refresh,
     )
+
+
+@router.get("/decision-ledger", response_model=list[DecisionLedgerEntry])
+def get_decision_ledger(
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[DecisionLedgerEntry]:
+    """Return recent auditable recommendation and execution decisions."""
+    return list_decisions(limit=limit)
+
+
+@router.get("/decision-ledger/latest", response_model=list[DecisionLedgerEntry])
+def get_latest_decision_ledger(
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[DecisionLedgerEntry]:
+    """Return the most recent decision ledger entries."""
+    return list_decisions(limit=limit)

@@ -516,7 +516,7 @@ export async function executeTrade({
 }
 
 /**
- * Refresh marks via Serper web search + LLM (batch API); Polygon alone is often prior close only.
+ * Refresh marks via configured market-data provider (batch API).
  * Persists `updatedPrice` and returns snapshot rows for the briefing (same cadence as research refresh).
  */
 export async function refreshHoldingsMarketPricesFromQuotes(holdings) {
