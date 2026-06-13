@@ -1,5 +1,5 @@
 /**
- * Client for the Python AI market-data endpoints (quotes, intraday pricing).
+ * Client for the Python AI market-data endpoints (quotes, batch holdings refresh).
  * Includes a localStorage cache for previous-close prices to avoid redundant requests.
  */
 
@@ -20,11 +20,10 @@ export function getPythonAiBaseUrl() {
 const HOLDINGS_INTRADAY_FETCH_MS = 35000;
 
 /**
- * Batch-fetches intraday quotes for a list of ticker symbols using Serper web search + LLM extraction.
- * Polygon is EOD-only on most free/starter tiers, so this endpoint provides real-time marks.
+ * Batch-fetches quotes for holdings using the configured backend market-data provider.
  *
  * @param {string[]} symbols - Uppercase ticker symbols to refresh.
- * @returns {Promise<Array<{ symbol: string, price: number, previous_close: number, source: string }>>}
+ * @returns {Promise<Array<{ symbol: string, price: number, previous_close: number, source: string, provider?: string, data_quality?: string, is_delayed?: boolean }>>}
  */
 export async function fetchHoldingsIntradayQuotes(symbols) {
   const uniq = [

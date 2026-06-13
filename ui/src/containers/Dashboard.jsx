@@ -15,6 +15,7 @@ import { Badge } from "../components/Badge";
 import { TradingModeSelector } from "../components/TradingModeSelector";
 import { getTradingMode } from "../lib/tradingModes";
 import { formatCurrency } from "../lib/formatCurrency";
+import { getMarketDataDisclaimer } from "../lib/marketDataLabels";
 
 // --- Greeting Helper ---
 const getGreeting = () => {
@@ -120,6 +121,13 @@ export function Dashboard({
           today.
         </p>
       </header>
+
+      <div
+        role="status"
+        className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+      >
+        {getMarketDataDisclaimer()}
+      </div>
 
       <GlassCard className="p-6">
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -348,6 +356,7 @@ export function Dashboard({
                   {generatedAt ? (
                     <p className="text-[10px] mt-2 font-bold text-teal-700 uppercase tracking-widest">
                       Generated {generatedAt}
+                      {morningBriefing.cache_hit ? " · Cached briefing" : ""}
                     </p>
                   ) : null}
                 </div>

@@ -47,8 +47,8 @@ describe("useBriefing", () => {
     vi.useRealTimers();
   });
 
-  it("calls generate with closed-market focus on a holiday", async () => {
-    vi.mocked(briefings.generateMorningBriefing).mockResolvedValue({
+  it("loads cached briefing on manual mode without calling generate", async () => {
+    vi.mocked(briefings.fetchLatestMorningBriefing).mockResolvedValue({
       macro_news_summary: "Overnight headlines",
       holdings_actions: [],
       cash_deployment_options: [],
@@ -73,16 +73,13 @@ describe("useBriefing", () => {
 
     await waitFor(() => expect(result.current.isBriefingLoading).toBe(false));
 
-    expect(briefings.generateMorningBriefing).toHaveBeenCalledTimes(1);
-    const call = vi.mocked(briefings.generateMorningBriefing).mock.calls[0][0];
-    expect(call.focus).toMatch(/markets are currently closed/i);
-    expect(call.focus).toMatch(/May 26/);
+    expect(briefings.fetchLatestMorningBriefing).toHaveBeenCalledTimes(1);
+    expect(briefings.generateMorningBriefing).not.toHaveBeenCalled();
     expect(result.current.briefingNotice?.title).toBe("US markets are closed");
     expect(result.current.morningBriefing?.macro_news_summary).toBe("Overnight headlines");
   });
 
-  it("sets connectivity error when both API calls fail on a closed day", async () => {
-    vi.mocked(briefings.generateMorningBriefing).mockRejectedValue(new Error("offline"));
+  it("sets connectivity error when fetch latest fails on a closed day", async () => {
     vi.mocked(briefings.fetchLatestMorningBriefing).mockRejectedValue(new Error("offline"));
 
     const { result } = renderHook(() =>

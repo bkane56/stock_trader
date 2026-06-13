@@ -25,6 +25,23 @@ class Recommendation(BaseModel):
     generated_at: datetime
 
 
+class RecommendationDecision(BaseModel):
+    """Structured output from the deterministic decision service."""
+
+    symbol: str
+    action: str = Field(pattern="^(buy|sell|hold|trim|watch)$")
+    confidence: float = Field(ge=0.0, le=1.0)
+    quantity: int | None = None
+    estimated_price: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    rule_triggers: list[str] = Field(default_factory=list)
+    ai_summary: str | None = None
+    requires_user_approval: bool = False
+    mode: str = Field(default="manual", pattern="^(manual|assisted|autonomous)$")
+    blocked_reason: str | None = None
+    executed: bool = False
+
+
 class RecommendationListResponse(BaseModel):
     recommendations: list[Recommendation]
     tools_used: list[str] = Field(default_factory=list)
@@ -94,6 +111,7 @@ class HoldingSnapshot(BaseModel):
     sector: str = ""
     shares: float = Field(default=0.0, ge=0.0)
     price: float = Field(default=0.0, ge=0.0)
+    avg_cost: float = Field(default=0.0, ge=0.0)
 
 
 class CashDeploymentOption(BaseModel):
@@ -166,6 +184,8 @@ class MorningBriefingResponse(BaseModel):
     execution_recommendations: list[ExecutionRecommendation] = Field(default_factory=list)
     macro_news_summary: str
     risk_flags: list[RiskFlag]
+    decision_trace: list[RecommendationDecision] = Field(default_factory=list)
+    cache_hit: bool = False
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -183,3 +203,4 @@ class MorningBriefingGenerateRequest(BaseModel):
         default="manual_user",
         pattern="^(manual_user|assisted_agent|autonomous_agent)$",
     )
+    force_refresh: bool = False

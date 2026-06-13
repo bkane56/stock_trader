@@ -169,9 +169,7 @@ def test_generate_briefing_endpoint_accepts_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         api_routes,
         "generate_and_persist_morning_briefing",
-        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus, trading_mode: (
-            api_routes.MorningBriefingResponse.model_validate(briefing)
-        ),
+        lambda *args, **kwargs: api_routes.MorningBriefingResponse.model_validate(briefing),
     )
     response = client.post(
         "/briefings/generate",
@@ -238,9 +236,7 @@ def test_generate_briefing_allows_autonomous_during_market_hours(monkeypatch) ->
     monkeypatch.setattr(
         api_routes,
         "generate_morning_briefing",
-        lambda holdings, holdings_snapshot, cash_available, strategy_growth_pct, strategy_fixed_pct, focus, trading_mode: (
-            api_routes.MorningBriefingResponse.model_validate(briefing)
-        ),
+        lambda *args, **kwargs: api_routes.MorningBriefingResponse.model_validate(briefing),
     )
     response = client.post(
         "/briefings/generate",

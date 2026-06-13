@@ -21,6 +21,7 @@ import {
   Settings2,
   ChevronDown,
   Info,
+  ScrollText,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
@@ -31,6 +32,7 @@ import { currentUser } from "./mocks/currentUser";
 import { Dashboard } from "./containers/Dashboard";
 import { Portfolio } from "./containers/Portfolio";
 import { About } from "./containers/About";
+import { DecisionLedger } from "./containers/DecisionLedger";
 import { fetchSymbolQuote } from "./services/marketData";
 import { resolveCompanyName } from "./lib/companyNames";
 import { calculatePortfolioMetrics } from "./lib/portfolioMetrics";
@@ -862,6 +864,7 @@ export default function App() {
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/portfolio", label: "Portfolio", icon: Briefcase },
     { to: "/strategy", label: "Strategy Builder", icon: PieChart },
+    { to: "/decision-ledger", label: "Decision Ledger", icon: ScrollText },
     { to: "/about", label: "About", icon: Info },
   ];
 
@@ -1203,6 +1206,7 @@ export default function App() {
                 </Suspense>
               }
             />
+            <Route path="/decision-ledger" element={<DecisionLedger />} />
             <Route path="/about" element={<About />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -1222,7 +1226,8 @@ export default function App() {
               </span>
             </div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center md:text-left max-w-md">
-              Portfolio demonstration project. Not financial advice. Market data may be delayed.
+              Hypothetical paper-trading platform for software engineering and AI architecture
+              demonstration. Does not execute real trades or provide financial advice.
             </p>
             <div className="flex flex-wrap justify-center gap-6">
               <NavLink

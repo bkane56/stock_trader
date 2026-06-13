@@ -21,7 +21,7 @@ from app.pipeline.briefing_logic import (
     normalize_symbols,
     should_suppress_new_buys,
 )
-from app.pipeline.persistence import persist_morning_briefing
+from app.pipeline.persistence import persist_morning_briefing, latest_persisted_morning_briefing
 from app.pipeline.recommendation_runner import (
     run_openai_agents_recommendations,
     run_openai_agents_research,
@@ -34,7 +34,15 @@ from app.schemas.recommendations import (
     MarketResearchResponse,
     MorningBriefingResponse,
     Recommendation,
+    RecommendationDecision,
 )
+from app.services.deterministic_pipeline import (
+    gate_research_run,
+    record_decisions_to_ledger,
+    run_deterministic_preflight,
+)
+from app.services.recommendation_decision import build_recommendation_decisions
+from app.services.market_data.factory import market_data_status
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +399,7 @@ def generate_morning_briefing(
     strategy_fixed_pct: float = 40.0,
     focus: str = "",
     trading_mode: str = "manual_user",
+    force_refresh: bool = False,
 ) -> MorningBriefingResponse:
     """Generate a full morning briefing combining research and portfolio execution plan."""
     settings = get_settings()
@@ -399,13 +408,61 @@ def generate_morning_briefing(
     research_focus = default_morning_focus(focus)
     clamped_growth_pct = clamp_strategy_growth(strategy_growth_pct)
     clamped_fixed_pct = max(0.0, min(100.0, float(strategy_fixed_pct)))
+    snapshot = holdings_snapshot or []
+    decision_trace: list[RecommendationDecision] = []
+    cache_hit = False
+    research_symbols = normalized_holdings
+    scored_candidates = []
+
+    if settings.USE_DETERMINISTIC_PIPELINE:
+        allowed, block_reason = gate_research_run(
+            force_refresh=force_refresh,
+            settings=settings,
+        )
+        universe, scored_candidates, decision_trace, cache_hit = run_deterministic_preflight(
+            holdings=normalized_holdings,
+            holdings_snapshot=snapshot,
+            cash_available=cash_available,
+            trading_mode=trading_mode,
+            settings=settings,
+            force_refresh=force_refresh,
+        )
+        research_symbols = universe[: int(settings.MAX_SYMBOLS_PER_RESEARCH_RUN)]
+        if not allowed and block_reason and settings.USE_CACHED_RESEARCH_IF_FRESH:
+            latest = latest_persisted_morning_briefing()
+            if latest is not None:
+                latest.cache_hit = True
+                return latest
+
     research = generate_market_research(
-        holdings=normalized_holdings,
+        holdings=research_symbols,
         focus=research_focus,
         strategy_growth_pct=clamped_growth_pct,
         strategy_fixed_pct=clamped_fixed_pct,
         autonomous_mode=autonomous_mode,
     )
+
+    if settings.USE_DETERMINISTIC_PIPELINE and decision_trace:
+        ai_summaries = {
+            row.symbol.upper(): row.reason
+            for row in research.holdings_review
+        }
+        for idea in research.top_3_buys:
+            ai_summaries[idea.symbol.upper()] = idea.thesis
+        mode = {
+            "manual_user": "manual",
+            "assisted_agent": "assisted",
+            "autonomous_agent": "autonomous",
+        }.get(str(trading_mode).strip(), "manual")
+        decision_trace = build_recommendation_decisions(
+            scored_candidates=scored_candidates,
+            holdings_snapshot=snapshot,
+            cash_available=cash_available,
+            mode=mode,  # type: ignore[arg-type]
+            ai_summaries=ai_summaries,
+            settings=settings,
+        )
+        record_decisions_to_ledger(decision_trace, trading_mode=trading_mode)
 
     holdings_actions = [
         HoldingAction(
@@ -495,6 +552,8 @@ def generate_morning_briefing(
         execution_recommendations=execution_recommendations,
         macro_news_summary=research.macro_summary,
         risk_flags=build_risk_flags(research),
+        decision_trace=decision_trace,
+        cache_hit=cache_hit,
         generated_at=research.generated_at,
     )
 
@@ -508,6 +567,7 @@ def generate_and_persist_morning_briefing(
     strategy_fixed_pct: float = 40.0,
     focus: str = "",
     trading_mode: str = "manual_user",
+    force_refresh: bool = False,
 ) -> MorningBriefingResponse:
     """Generate and persist a morning briefing in one call."""
     briefing = generate_morning_briefing(
@@ -518,6 +578,7 @@ def generate_and_persist_morning_briefing(
         strategy_fixed_pct=strategy_fixed_pct,
         focus=focus,
         trading_mode=trading_mode,
+        force_refresh=force_refresh,
     )
     persist_morning_briefing(briefing)
     return briefing
@@ -562,4 +623,5 @@ def runtime_health_details() -> dict[str, Any]:
     details["mcp_runtime_configured"] = runtime.debug_snapshot()
     details["mcp_runtime_last_run"] = latest_mcp_runtime_debug()
     details["last_recommendation_tools_used"] = latest_recommendation_tools_used()
+    details.update(market_data_status(settings))
     return details

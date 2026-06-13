@@ -432,7 +432,11 @@ async def _run_openai_agents_recommendations_async(
                 prompt += (
                     "\nYou MUST call the `Researcher` tool once before finalizing your JSON."
                 )
-            result = await Runner.run(advisor, prompt, max_turns=30)
+            result = await Runner.run(
+                advisor,
+                prompt,
+                max_turns=int(settings.RECOMMENDATION_MAX_TURNS),
+            )
 
     final_text = str(getattr(result, "final_output", "")).strip()
     if not final_text:
@@ -529,7 +533,11 @@ async def _run_openai_agents_research_async(
             prompt += (
                 "\nUse web-facing MCP tools for current internet evidence before finalizing."
             )
-        result = await Runner.run(researcher, prompt, max_turns=30)
+        result = await Runner.run(
+            researcher,
+            prompt,
+            max_turns=int(settings.RESEARCH_MAX_TURNS),
+        )
 
     final_text = str(getattr(result, "final_output", "")).strip()
     if not final_text:

@@ -184,16 +184,23 @@ export function useBriefing({
         : "portfolio holdings actions and cash deployment options";
 
       try {
-        const payload = await generateMorningBriefing({
-          holdings: symbols,
-          holdingsSnapshot: snapshotHoldings,
-          cashAvailable: cash,
-          strategyGrowthPct,
-          strategyFixedPct,
-          persist: false,
-          tradingMode: activeTradingMode.id,
-          focus,
-        });
+        const shouldRunLiveGeneration = isAutonomousMode && briefingRefreshNonce > 0;
+        let payload;
+        if (shouldRunLiveGeneration) {
+          payload = await generateMorningBriefing({
+            holdings: symbols,
+            holdingsSnapshot: snapshotHoldings,
+            cashAvailable: cash,
+            strategyGrowthPct,
+            strategyFixedPct,
+            persist: false,
+            tradingMode: activeTradingMode.id,
+            focus,
+            forceRefresh: briefingRefreshNonce > 1,
+          });
+        } else {
+          payload = await fetchLatestMorningBriefing();
+        }
         if (!isCancelled) {
           setMorningBriefing(payload);
           setBriefingNotice(closedNotice);

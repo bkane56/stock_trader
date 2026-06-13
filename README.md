@@ -1,10 +1,35 @@
-# InvestAI
+# AI-Assisted Paper Trading Platform
 
-**AI-powered portfolio assistant** — multi-agent research, daily briefings, and three trading automation modes on a production-grade React + FastAPI stack.
+**A React/FastAPI paper-trading platform** demonstrating progressive AI autonomy, deterministic risk controls, portfolio-aware recommendation logic, auditable decisions, and cost-aware LLM orchestration.
 
 Built as a portfolio project demonstrating full-stack architecture, OpenAI Agents SDK orchestration, real-time persistence, and accessible UI engineering.
 
-> **Disclaimer:** Decision-support and paper-style portfolio tooling only. Not financial advice. Market data may be delayed.
+> **Disclaimer:** This application is a hypothetical paper-trading platform built for software engineering and AI architecture demonstration purposes. It does not execute real trades and does not provide financial advice.
+
+---
+
+## Deterministic pipeline
+
+```text
+Candidate Universe → Candidate Scoring → Market Data Provider → Portfolio State → Risk Rules → AI Research Summary → Recommendation Decision → Decision Ledger
+```
+
+### Cost control
+
+- Configurable free/limited market-data providers (Alpaca IEX, Polygon previous close, or mock)
+- Quote caching with provider-specific TTLs (minutes for Alpaca, until next session for Polygon)
+- Cached research, scores, and recommendations with configurable TTLs
+- Bounded AI calls via configurable budget policy (`MAX_RESEARCH_RUNS_PER_DAY`, `MIN_MINUTES_BETWEEN_RESEARCH_RUNS`)
+- Manual refresh controls; UI loads cached briefings unless autonomous mode triggers live generation
+- No OpenAI usage for ordinary quote extraction during normal portfolio pricing
+
+### Responsible AI
+
+- Manual mode has no AI trade authority
+- Assisted mode requires user approval before execution
+- Autonomous mode is paper trading only with deterministic risk checks
+- Full audit trail in the Decision Ledger
+- Clear disclaimer in README and UI near portfolio value
 
 ---
 
@@ -15,7 +40,7 @@ Built as a portfolio project demonstrating full-stack architecture, OpenAI Agent
 | **Frontend** | React 19, Vite 6, Redux 5, Tailwind CSS v4, Recharts |
 | **Backend** | Python 3.12+, FastAPI, Pydantic v2, OpenAI Agents SDK |
 | **Persistence** | InstantDB (auth, portfolios, positions, audit events) |
-| **Market data** | Polygon.io, Yahoo sector quotes, web/news search |
+| **Market data** | Alpaca IEX (preferred), Polygon previous close, mock provider for tests |
 | **Deploy** | Vercel (SPA) + Railway/Docker (API) |
 | **Quality** | Vitest, vitest-axe (WCAG 2.2), pytest (≥90% target) |
 
@@ -114,7 +139,7 @@ Full diagrams (AI pipeline, deployment, data model): **[ARCHITECTURE.md](ARCHITE
 
 ### External integrations
 
-- **Polygon.io** — End-of-day and previous-close quotes
+- **Polygon.io / Alpaca** — Configurable quote providers with caching and freshness metadata
 - **Serper / Google News / Yahoo** — Research agent market intelligence
 - **Optional MCP servers** — Fetch, Playwright, Brave search, Polygon MCP
 
@@ -134,6 +159,7 @@ stock_trader/
 │   ├── app/
 │   │   ├── api/routes.py       # REST endpoints
 │   │   ├── agents/             # Financial advisor + research agents
+│   │   ├── services/           # Universe, scoring, risk, decisions, ledger
 │   │   └── pipeline/           # Orchestrator, briefing logic, persistence
 │   └── tests/
 ├── instant.schema.ts           # InstantDB schema
@@ -170,8 +196,11 @@ Health check: `curl http://127.0.0.1:8010/health/details`
 |----------|-------|---------|
 | `VITE_INSTANTDB_APP_ID` | Frontend | Portfolio persistence + auth |
 | `VITE_PYTHON_AI_BASE_URL` | Frontend | API base URL (default `http://127.0.0.1:8010`) |
+| `MARKET_DATA_PROVIDER` | Backend | `alpaca`, `polygon`, or `mock` |
+| `VITE_MARKET_DATA_PROVIDER` | Frontend | UI pricing source label (should match backend) |
 | `OPENAI_API_KEY` | Backend | Agent execution |
-| `POLYGON_API_KEY` | Backend | Stock quotes |
+| `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` | Backend | Alpaca IEX quotes (paper trading marks) |
+| `POLYGON_API_KEY` | Backend | Polygon previous-close fallback |
 | `AI_PROVIDER` / `AI_MODEL` | Backend | Model selection (default OpenAI) |
 
 See [`.env.example`](.env.example) and [INSTANTDB_SETUP.md](INSTANTDB_SETUP.md) for the full list.

@@ -45,6 +45,7 @@ export async function generateMorningBriefing({
   focus = "",
   persist = false,
   tradingMode = "manual_user",
+  forceRefresh = false,
 } = {}) {
   const normalizedHoldings = Array.from(
     new Set(
@@ -66,6 +67,7 @@ export async function generateMorningBriefing({
         sector: String(item?.sector || ""),
         shares: Math.max(0, Number(item?.shares) || 0),
         price: Math.max(0, Number(item?.price) || 0),
+        avg_cost: Math.max(0, Number(item?.avg_cost ?? item?.avgCost) || 0),
       })),
       cash_available: Math.max(0, Number(cashAvailable) || 0),
       strategy_growth_pct: Math.max(0, Math.min(100, Number(strategyGrowthPct) || 0)),
@@ -73,6 +75,7 @@ export async function generateMorningBriefing({
       focus: String(focus || ""),
       persist: Boolean(persist),
       trading_mode: String(tradingMode || "manual_user"),
+      force_refresh: Boolean(forceRefresh),
     }),
   });
   if (!response.ok) {
