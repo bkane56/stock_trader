@@ -41,7 +41,7 @@ Candidate Universe → Candidate Scoring → Market Data Provider → Portfolio 
 | **Backend** | Python 3.12+, FastAPI, Pydantic v2, OpenAI Agents SDK |
 | **Persistence** | InstantDB (auth, portfolios, positions, audit events) |
 | **Market data** | Alpaca IEX (preferred), Polygon previous close, mock provider for tests |
-| **Deploy** | Vercel (SPA) + Railway/Docker (API) |
+| **Deploy** | Vercel (SPA) + Render free tier (API) |
 | **Quality** | Vitest, vitest-axe (WCAG 2.2), pytest (≥90% target) |
 
 **Repository:** [github.com/bkane56/stock_trader](https://github.com/bkane56/stock_trader)  
@@ -164,6 +164,7 @@ stock_trader/
 │   └── tests/
 ├── instant.schema.ts           # InstantDB schema
 ├── ARCHITECTURE.md             # System design (Mermaid diagrams)
+├── render.yaml                 # Render Blueprint (API)
 └── vercel.json                 # Frontend deploy config
 ```
 
@@ -211,17 +212,29 @@ See [`.env.example`](.env.example) and [INSTANTDB_SETUP.md](INSTANTDB_SETUP.md) 
 
 | Target | Guide |
 |--------|--------|
-| **Frontend (Vercel)** | `yarn vercel:preview` / `yarn vercel:prod` — see [Vercel section below](#vercel-deployment) |
-| **API (Railway/Docker)** | [python_ai/DEPLOY.md](python_ai/DEPLOY.md) |
+| **Frontend (Vercel)** | Git auto-deploy or `yarn vercel:preview` / `yarn vercel:prod` — [Vercel section](#vercel-deployment) |
+| **API (Render)** | [python_ai/DEPLOY.md](python_ai/DEPLOY.md) — [`render.yaml`](render.yaml) Blueprint |
 | **InstantDB** | [INSTANTDB_SETUP.md](INSTANTDB_SETUP.md) |
 
-Set `VITE_PYTHON_AI_BASE_URL` on Vercel to your **HTTPS** API URL. Configure `CORS_ALLOW_ORIGINS` on the API for your Vercel domain.
+**Recommended flow:** Deploy Render API first → set `VITE_PYTHON_AI_BASE_URL` on Vercel → redeploy frontend → add Vercel URL to Render `CORS_ALLOW_ORIGINS`.
+
+Set `VITE_PYTHON_AI_BASE_URL` on Vercel to your **HTTPS** Render URL. Configure `CORS_ALLOW_ORIGINS` on the API for your Vercel domain (plus `CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app` for previews).
 
 ---
 
-## Vercel deployment
+## Render deployment (API)
 
-This repo includes `vercel.json` for Vite SPA routing.
+1. [render.com](https://render.com) → **New** → **Blueprint** → connect repo → apply [`render.yaml`](render.yaml).
+2. Set secrets in Render: `OPENAI_API_KEY`, market data keys, `CORS_ALLOW_ORIGINS`, `CORS_ALLOW_ORIGIN_REGEX`.
+3. Verify: `curl https://YOUR-SERVICE.onrender.com/health` → `{"status":"ok"}`.
+
+Free tier spins down after idle; first request after sleep may take 30–60s (cold start). See [python_ai/DEPLOY.md](python_ai/DEPLOY.md) for troubleshooting.
+
+---
+
+## Vercel deployment (frontend)
+
+This repo includes `vercel.json` for Vite SPA routing. Connect the GitHub repo in the Vercel dashboard for **auto-deploy on push**, or use the CLI:
 
 ```bash
 npx vercel@48.6.0 link --yes -p stock-trader   # one-time
@@ -230,9 +243,17 @@ yarn vercel:preview                             # preview deploy
 yarn vercel:prod                                # production deploy
 ```
 
-**Preview vs production:** Only `yarn vercel:prod` uses Production env vars. Preview deploys use Preview env vars in the Vercel dashboard.
+**Preview vs production:** Only production deploys use Production env vars. Preview deploys use Preview env vars in the Vercel dashboard.
 
-**Required Vercel env vars:** `VITE_INSTANTDB_APP_ID`, `VITE_PYTHON_AI_BASE_URL` (HTTPS, not `127.0.0.1`).
+**Required Vercel env vars (Preview + Production):**
+
+| Variable | Example |
+|----------|---------|
+| `VITE_INSTANTDB_APP_ID` | From InstantDB dashboard |
+| `VITE_PYTHON_AI_BASE_URL` | `https://stock-trader-api.onrender.com` (no trailing slash) |
+| `VITE_MARKET_DATA_PROVIDER` | Match backend, e.g. `alpaca` |
+
+Redeploy after changing `VITE_PYTHON_AI_BASE_URL` — it is baked into the bundle at build time ([`vite.config.ts`](vite.config.ts)).
 
 CORS details: [python_ai/README.md](python_ai/README.md#cors-and-the-vercel-frontend)
 

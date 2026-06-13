@@ -12,4 +12,4 @@ dist
 .env.*
 !.env.example
 ui
-.agents/skills/**/node_modules
+.cursor/skills/**/node_modules

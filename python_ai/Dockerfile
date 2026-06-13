@@ -5,7 +5,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 COPY python_ai/ /app/python_ai/
-COPY .agents/ /app/.agents/
+COPY skills_index.json /app/skills_index.json
+COPY .cursor/skills/ /app/.cursor/skills/
 
 WORKDIR /app/python_ai
 
