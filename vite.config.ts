@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
   }
 
   const aiProvider = (env.AI_PROVIDER || 'openai').toLowerCase();
-  const aiModel = env.AI_MODEL || env.OPENAI_MODEL || 'gpt-4.2';
+  const aiModel = env.AI_MODEL || env.OPENAI_MODEL || 'gpt-4.2-nano';
   const aiApiKey =
     aiProvider === 'anthropic'
       ? env.ANTHROPIC_API_KEY
