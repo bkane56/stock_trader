@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     MORNING_BRIEFING_DEFAULT_CASH: float = 100000.0
 
     AI_PROVIDER: str = "openai"
-    AI_MODEL: str = "gpt-4.2"
+    AI_MODEL: str = "gpt-4.2-nano"
     AI_SYSTEM_PROMPT: str = ""
     AI_SKILLS_INDEX_PATH: str = "skills_index.json"
     AI_SKILLS_ROOT_PATH: str = ".cursor/skills"

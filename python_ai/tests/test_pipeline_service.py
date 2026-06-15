@@ -221,7 +221,7 @@ def test_generate_recommendations_uses_openai_and_tools(monkeypatch: Any) -> Non
     settings = Settings(
         AI_PROVIDER="openai",
         OPENAI_API_KEY="sk-test",
-        AI_MODEL="gpt-4.2",
+        AI_MODEL="gpt-4.2-nano",
         SERPER_API_KEY="",
     )
     monkeypatch.setattr(orchestrator, "get_settings", lambda: settings)
@@ -267,7 +267,7 @@ def test_generate_market_research_uses_openai_and_tools(monkeypatch: Any) -> Non
     settings = Settings(
         AI_PROVIDER="openai",
         OPENAI_API_KEY="sk-test",
-        AI_MODEL="gpt-4.2",
+        AI_MODEL="gpt-4.2-nano",
         SERPER_API_KEY="",
     )
     monkeypatch.setattr(orchestrator, "get_settings", lambda: settings)
