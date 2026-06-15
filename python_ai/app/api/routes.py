@@ -41,7 +41,7 @@ from app.schemas.recommendations import (
     RecommendationsRequest,
     ResearchRequest,
 )
-from app.services.decision_ledger import list_decisions
+from app.services.decision_ledger import clear_decisions, list_decisions
 from app.services.market_data.base import ProviderError, quote_to_api_dict
 from app.services.market_data.factory import (
     fetch_quote_sync,
@@ -261,3 +261,12 @@ def get_latest_decision_ledger(
 ) -> list[DecisionLedgerEntry]:
     """Return the most recent decision ledger entries."""
     return list_decisions(limit=limit)
+
+
+@router.delete(
+    "/decision-ledger",
+    dependencies=[Depends(require_api_key)],
+)
+def delete_decision_ledger() -> dict[str, int]:
+    """Remove all decision ledger entries."""
+    return {"deleted": clear_decisions()}
