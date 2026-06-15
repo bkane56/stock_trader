@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     MORNING_BRIEFING_DEFAULT_CASH: float = 100000.0
 
     AI_PROVIDER: str = "openai"
-    AI_MODEL: str = "gpt-4.2-nano"
+    AI_MODEL: str = "gpt-5-nano"
     AI_SYSTEM_PROMPT: str = ""
     AI_SKILLS_INDEX_PATH: str = "skills_index.json"
     AI_SKILLS_ROOT_PATH: str = ".cursor/skills"
@@ -104,7 +104,7 @@ class Settings(BaseSettings):
             return self.OPENAI_MODEL.strip()
         if provider == "anthropic" and self.ANTHROPIC_MODEL.strip():
             return self.ANTHROPIC_MODEL.strip()
-        return "gpt-4.2"
+        return "gpt-5-nano"
 
     def resolved_ai_api_key(self) -> str:
         provider = self.resolved_ai_provider()
