@@ -8,7 +8,7 @@ access. The advisor agent can call a dedicated researcher agent as a tool.
 Default agent configuration is OpenAI-first:
 
 - `AI_PROVIDER=openai`
-- `AI_MODEL=gpt-4.2-nano` keeping inexpensive for development
+- `AI_MODEL=gpt-5-nano` keeping inexpensive for development
 - `APP_LOG_LEVEL=INFO`
 - `AI_SYSTEM_PROMPT=` (optional override)
 - `AI_SKILLS_INDEX_PATH=skills_index.json` (optional override)
