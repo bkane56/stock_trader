@@ -63,6 +63,20 @@ def list_decisions(*, limit: int = 100) -> list[DecisionLedgerEntry]:
     return entries
 
 
+def clear_decisions() -> int:
+    """Delete all ledger entries. Returns the number of files removed."""
+    if not _LEDGER_DIR.exists():
+        return 0
+    deleted = 0
+    for path in _LEDGER_DIR.glob("*.json"):
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            continue
+    return deleted
+
+
 def append_decisions(decisions: list[RecommendationDecision], *, source: str) -> list[DecisionLedgerEntry]:
     """Append multiple decisions to the ledger."""
     return [append_decision(row, source=source) for row in decisions]

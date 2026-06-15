@@ -160,3 +160,29 @@ def test_post_holdings_intraday(client: TestClient) -> None:
     data = response.json()
     assert len(data["quotes"]) == 1
     assert data["quotes"][0]["symbol"] == "AAPL"
+
+
+# ---------------------------------------------------------------------------
+# /decision-ledger
+# ---------------------------------------------------------------------------
+
+
+def test_delete_decision_ledger_clears_entries(client: TestClient) -> None:
+    from app.schemas.recommendations import RecommendationDecision
+    from app.services.decision_ledger import append_decision, list_decisions
+
+    append_decision(
+        RecommendationDecision(
+            symbol="NVDA",
+            action="trim",
+            confidence=0.8,
+            mode="assisted",
+        ),
+        source="assisted_ai",
+    )
+    assert len(list_decisions()) == 1
+
+    response = client.delete("/decision-ledger")
+    assert response.status_code == 200
+    assert response.json()["deleted"] >= 1
+    assert client.get("/decision-ledger").json() == []
